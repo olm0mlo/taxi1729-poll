@@ -204,7 +204,12 @@
   function detectMySlide(force) {
     if (S.slideId && !force) return;
     readCurrentSlide(function (cur) {
-      if (cur.id) { S.slideId = cur.id; S.slideIndex = cur.index; saveSettings(); log("slide del sondaggio rilevata: id " + cur.id + " (n. " + cur.index + ", metodo " + cur.method + ")"); }
+      if (cur.id) {
+        if (String(cur.id) === String(S.slideId)) { if (cur.index !== S.slideIndex) { S.slideIndex = cur.index; saveSettings(); } renderStatus(); return; }
+        if (S.slideId) log("ATTENZIONE: questo riquadro era associato alla slide id " + S.slideId + " (forse è una copia): ora la associo a id " + cur.id);
+        S.slideId = cur.id; S.slideIndex = cur.index; saveSettings(); subscribeVotes(); publishState();
+        log("slide del sondaggio rilevata: id " + cur.id + " (n. " + cur.index + ", metodo " + cur.method + ")");
+      }
       else log("impossibile rilevare la slide: " + cur.method);
       renderStatus();
     });
@@ -344,6 +349,10 @@
       document.body.removeChild(ta);
     };
     document.addEventListener("visibilitychange", function () { log("visibilità: " + document.visibilityState); tick(); if (document.visibilityState === "visible") nudgeRepaint(); });
+    // In modalità Modifica, quando clicchi dentro il riquadro la slide selezionata è per forza la sua:
+    // ne approfittiamo per correggere l'associazione (utile se la slide è stata duplicata).
+    window.addEventListener("focus", function () { if (officeReady && view === "edit") setTimeout(function () { detectMySlide(true); }, 200); });
+    document.addEventListener("mousedown", function () { if (officeReady && view === "edit") setTimeout(function () { detectMySlide(true); }, 200); });
     window.addEventListener("pagehide", function () { if (active) { active = false; publishState(); } });
   }
 
