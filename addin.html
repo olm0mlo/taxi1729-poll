@@ -5,10 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Taxi1729 Poll</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Raleway:wght@300;400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Raleway:wght@300;400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-<script src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="config.js"></script>
 <style>
   :root {
@@ -73,10 +71,10 @@
 </head>
 <body>
 
-<div id="stage" class="hidden">
+<div id="stage">
   <div class="left">
     <div class="kicker"><b>01</b><span>SONDAGGIO</span></div>
-    <div id="q">Domanda</div>
+    <div id="q"></div>
     <div id="bars"></div>
   </div>
   <div class="right">
@@ -133,6 +131,22 @@
   var view = null, curSlide = null, active = false, simulateUntil = 0, preview = false;
   var net = null, votes = {}, subscribedVotes = null, hbTimer = null;
   var logLines = [];
+  var T0 = Date.now();
+  function loadScript(src, cb) {
+    var el = document.createElement("script"); el.src = src; el.async = true;
+    el.onload = function () { log("caricata " + src.split("/")[2] + " in " + (Date.now() - T0) + " ms"); cb && cb(true); };
+    el.onerror = function () { log("ERRORE caricando " + src); cb && cb(false); };
+    document.head.appendChild(el);
+  }
+  // Su Windows la prima proiezione a volte non ridisegna il riquadro: lo forziamo per qualche secondo.
+  function nudgeRepaint() {
+    var n = 0;
+    var iv = setInterval(function () {
+      document.body.style.transform = (n % 2) ? "translateZ(0)" : "none";
+      void document.body.offsetHeight;
+      if (++n >= 12) { clearInterval(iv); document.body.style.transform = "none"; }
+    }, 250);
+  }
   var officeReady = false;
 
   function ts() { var d = new Date(); return d.toTimeString().slice(0, 8) + "." + String(d.getMilliseconds()).padStart(3, "0"); }
@@ -329,7 +343,7 @@
       try { document.execCommand("copy"); log("diagnostica copiata negli appunti"); } catch (e) { log("copia non riuscita"); }
       document.body.removeChild(ta);
     };
-    document.addEventListener("visibilitychange", function () { log("visibilità: " + document.visibilityState); tick(); });
+    document.addEventListener("visibilitychange", function () { log("visibilità: " + document.visibilityState); tick(); if (document.visibilityState === "visible") nudgeRepaint(); });
     window.addEventListener("pagehide", function () { if (active) { active = false; publishState(); } });
   }
 
@@ -344,17 +358,19 @@
       loadSettings();
       log("avvio in " + Office.context.diagnostics.platform + " " + Office.context.diagnostics.version);
       Office.context.document.getActiveViewAsync(function (r) {
-        view = r.value; log("vista iniziale: " + view); renderMode(); tick();
+        view = r.value; log("vista iniziale: " + view + " (dopo " + (Date.now() - T0) + " ms)"); renderMode(); tick(); if (view === "read") nudgeRepaint();
       });
       Office.context.document.addHandlerAsync(Office.EventType.ActiveViewChanged, function (e) {
-        view = e.activeView; log("cambio vista: " + view); renderMode(); tick();
+        view = e.activeView; log("cambio vista: " + view); renderMode(); tick(); if (view === "read") nudgeRepaint();
       });
       detectMySlide(false);
       setInterval(tick, C.POLL_SLIDE_MS);
     } else {
       log("aperto fuori da PowerPoint: solo anteprima");
     }
-    fillForm(); renderSlide(); renderMode(); startNetwork();
+    fillForm(); renderSlide(); renderMode();
+    loadScript("https://unpkg.com/mqtt@5/dist/mqtt.min.js", startNetwork);
+    loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js", function () { renderSlide(); });
   }
   start();
 })();
