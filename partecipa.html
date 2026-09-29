@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#02151f">
+<title>Taxi1729 Poll</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Raleway:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
+<script src="config.js"></script>
+<style>
+  :root { --navy: #02151f; --yellow: #e8ea6e; --sky: #7fa6ad; --salmon: #f28f86; --white: #fff; --muted: #9fb3b9; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; min-height: 100%; background: var(--navy); color: var(--white); font-family: "Inter", system-ui, sans-serif; }
+  header { display: flex; justify-content: space-between; align-items: center; padding: 16px; }
+  header img { height: 40px; }
+  header .code { font-family: "Raleway"; font-size: 13px; color: var(--muted); text-align: right; }
+  header .code b { display: block; color: var(--white); font-family: "Inter"; font-weight: 800; letter-spacing: .12em; font-size: 16px; }
+  main { padding: 8px 16px 40px; max-width: 560px; margin: 0 auto; }
+  .screen { animation: in .35s ease; }
+  @keyframes in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  .wait { text-align: center; padding-top: 16vh; }
+  .wait .pulse { width: 18px; height: 18px; border-radius: 50%; background: var(--yellow); margin: 0 auto 28px;
+    animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.8); opacity: .35; } }
+  .wait h2 { font-weight: 800; font-size: 28px; margin: 0 0 8px; letter-spacing: -.01em; }
+  .wait p { font-family: "Raleway"; color: var(--muted); margin: 0; font-size: 17px; }
+  .kicker { font-family: "Raleway"; font-weight: 300; color: var(--yellow); letter-spacing: .06em; font-size: 14px; text-transform: uppercase; }
+  h1 { font-weight: 800; font-size: 26px; line-height: 1.15; margin: 8px 0 22px; letter-spacing: -.01em; }
+  .opt { display: block; width: 100%; text-align: left; padding: 17px 18px; margin-bottom: 11px; border-radius: 14px;
+    border: 2px solid rgba(255,255,255,.14); background: rgba(255,255,255,.04); color: var(--white);
+    font: 500 17px "Raleway", sans-serif; cursor: pointer; transition: border-color .15s, background .15s; }
+  .opt.sel { border-color: var(--yellow); background: rgba(232,234,110,.12); }
+  .send { width: 100%; padding: 17px; border: 0; border-radius: 14px; background: var(--yellow); color: var(--navy);
+    font: 800 17px "Inter", sans-serif; margin-top: 8px; cursor: pointer; }
+  .send:disabled { opacity: .35; }
+  .done { text-align: center; padding-top: 12vh; }
+  .done .check { width: 64px; height: 64px; border-radius: 50%; background: var(--yellow); color: var(--navy);
+    display: grid; place-items: center; font-size: 34px; font-weight: 800; margin: 0 auto 22px; }
+  .done h2 { font-weight: 800; font-size: 26px; margin: 0 0 8px; }
+  .done p { font-family: "Raleway"; color: var(--muted); font-size: 16px; margin: 0; }
+  .net { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); font-size: 12px; color: var(--muted);
+    background: rgba(0,0,0,.35); padding: 5px 11px; border-radius: 99px; white-space: nowrap; }
+  #dbg { font: 11px/1.4 ui-monospace, Menlo, monospace; color: #cfe; background: #000a; padding: 8px; margin-top: 30px; white-space: pre-wrap; border-radius: 8px; }
+  .enter { text-align: center; padding-top: 12vh; }
+  .enter input { width: 100%; padding: 16px; border-radius: 14px; border: 2px solid rgba(255,255,255,.2); background: transparent;
+    color: #fff; font: 800 24px "Inter"; text-align: center; letter-spacing: .2em; text-transform: uppercase; margin: 18px 0 10px; }
+</style>
+</head>
+<body>
+<header>
+  <img src="assets/logo-negativo.png" alt="Taxi1729">
+  <div class="code">Evento<b id="code">—</b></div>
+</header>
+<main id="main"></main>
+<div class="net" id="net">connessione…</div>
+
+<script>
+(function () {
+  var C = window.T1729;
+  var params = new URLSearchParams(location.search);
+  var eventCode = (params.get("e") || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  var debug = params.get("debug") === "1";
+  var main = document.getElementById("main");
+  var slides = {};           // slideKey -> { data, lastSeen, since }
+  var current = null;        // slideKey mostrata
+  var selected = null;
+  var voter = getVoterId();
+  var dbgLines = [];
+
+  function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
+  function getVoterId() {
+    var id = store("t1729-voter");
+    if (!id) { id = "v" + Math.random().toString(36).slice(2, 12); store("t1729-voter", id); }
+    return id;
+  }
+  function votedKey(k) { return "t1729-voted-" + eventCode + "-" + k; }
+  function dbg(m) { if (!debug) return; dbgLines.unshift(new Date().toTimeString().slice(0, 8) + " " + m); dbgLines = dbgLines.slice(0, 30); var el = document.getElementById("dbg"); if (el) el.textContent = dbgLines.join("\n"); }
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+
+  if (!eventCode) { renderEnter(); return; }
+  document.getElementById("code").textContent = eventCode;
+  renderWait();
+
+  if (!window.mqtt) { document.getElementById("net").textContent = "impossibile caricare la connessione"; return; }
+  var net = C.connect(function (txt, ok) { document.getElementById("net").textContent = ok ? "● in diretta" : txt; dbg("rete: " + txt); });
+  net.subscribe(C.topic(eventCode, "slides", "+"));
+  net.onMessage(function (topic, buf) {
+    var key = topic.split("/").pop();
+    try {
+      var d = JSON.parse(buf.toString());
+      var prev = slides[key];
+      if (d.active) slides[key] = { data: d, lastSeen: Date.now(), since: prev && prev.data.active ? prev.since : Date.now() };
+      else delete slides[key];
+      dbg("slide " + key + " " + (d.active ? "attiva" : "non attiva"));
+      decide();
+    } catch (e) {}
+  });
+  setInterval(decide, 1000);
+
+  // Mostra la slide attiva più recente con conferme fresche; altrimenti la schermata d'attesa.
+  function decide() {
+    var now = Date.now(), best = null;
+    Object.keys(slides).forEach(function (k) {
+      var s = slides[k];
+      if (now - s.lastSeen > C.STALE_MS) { delete slides[k]; return; }
+      if (!best || s.since > slides[best].since) best = k;
+    });
+    if (best !== current) {
+      current = best; selected = null;
+      if (!best) renderWait(); else renderPoll(best);
+    } else if (best && !store(votedKey(best))) {
+      // aggiornamento del testo della domanda mentre è aperta
+      var h = main.querySelector("h1"); var d = slides[best].data;
+      if (h && h.textContent !== d.question) renderPoll(best);
+    }
+  }
+
+  function renderEnter() {
+    document.getElementById("net").style.display = "none";
+    main.innerHTML = '<div class="screen enter"><div class="kicker">Benvenuto</div><h1>Inserisci il codice dell\'evento</h1>' +
+      '<input id="ec" inputmode="text" autocomplete="off" maxlength="12"><button class="send" id="go">Entra</button></div>';
+    document.getElementById("go").onclick = function () {
+      var v = document.getElementById("ec").value.trim(); if (v) location.search = "?e=" + encodeURIComponent(v) + (debug ? "&debug=1" : "");
+    };
+  }
+  function renderWait() {
+    main.innerHTML = '<div class="screen wait"><div class="pulse"></div><h2>Tieni d\'occhio lo schermo</h2>' +
+      '<p>La prossima domanda comparirà qui in automatico.</p></div>' + (debug ? '<div id="dbg"></div>' : "");
+    dbg("schermata d'attesa");
+  }
+  function renderDone() {
+    main.innerHTML = '<div class="screen done"><div class="check">✓</div><h2>Risposta inviata</h2>' +
+      '<p>Grazie! Guarda i risultati sullo schermo.</p></div>' + (debug ? '<div id="dbg"></div>' : "");
+  }
+  function renderPoll(key) {
+    if (store(votedKey(key))) { renderDone(); return; }
+    var d = slides[key].data;
+    var html = '<div class="screen"><div class="kicker">Sondaggio</div><h1>' + esc(d.question) + '</h1>';
+    (d.options || []).forEach(function (o, i) { html += '<button class="opt" data-i="' + i + '">' + esc(o) + '</button>'; });
+    html += '<button class="send" id="send" disabled>Invia</button></div>' + (debug ? '<div id="dbg"></div>' : "");
+    main.innerHTML = html;
+    Array.prototype.forEach.call(main.querySelectorAll(".opt"), function (b) {
+      b.onclick = function () {
+        selected = +b.getAttribute("data-i");
+        Array.prototype.forEach.call(main.querySelectorAll(".opt"), function (x) { x.classList.toggle("sel", x === b); });
+        document.getElementById("send").disabled = false;
+      };
+    });
+    document.getElementById("send").onclick = function () {
+      if (selected === null) return;
+      net.publish(C.topic(eventCode, "votes", key), JSON.stringify({ voter: voter, option: selected }), { qos: 1 });
+      store(votedKey(key), "1"); dbg("voto inviato: " + selected); renderDone();
+    };
+  }
+})();
+</script>
+</body>
+</html>

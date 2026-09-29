@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Taxi1729 Poll</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Raleway:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+<script src="https://unpkg.com/mqtt@5/dist/mqtt.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="config.js"></script>
+<style>
+  :root {
+    --navy: #02151f; --navy-2: #0b2530; --yellow: #e8ea6e; --sky: #7fa6ad;
+    --salmon: #f28f86; --ink: #22262a; --white: #ffffff; --muted: #9fb3b9;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--navy); color: var(--white);
+    font-family: "Inter", system-ui, sans-serif; overflow: hidden; }
+  .hidden { display: none !important; }
+
+  /* ---------- Vista slide (proiezione e anteprima) ---------- */
+  #stage { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 28%;
+    gap: 4vw; padding: 5vh 5vw 7vh; }
+  #stage .left { display: flex; flex-direction: column; min-width: 0; }
+  .kicker { font-family: "Raleway", sans-serif; font-weight: 300; font-size: 2.6vw; color: var(--yellow);
+    display: flex; align-items: baseline; gap: .6vw; }
+  .kicker b { font-weight: 300; font-size: 4.5vw; color: var(--white); }
+  .kicker b::after { content: ""; display: inline-block; width: .8vw; height: .8vw; border-radius: 50%;
+    background: var(--yellow); margin-left: .3vw; }
+  #q { font-weight: 800; font-size: 4.4vw; line-height: 1.08; letter-spacing: -.02em; margin: 2.5vh 0 4vh; }
+  #bars { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 2.2vh; }
+  .bar { display: grid; grid-template-columns: 1fr auto; gap: .6vh 1.5vw; align-items: end; }
+  .bar .label { font-family: "Raleway", sans-serif; font-weight: 500; font-size: 2.1vw; }
+  .bar .val { font-weight: 800; font-size: 2.1vw; color: var(--yellow); font-variant-numeric: tabular-nums; }
+  .bar .track { grid-column: 1 / -1; height: 2.4vh; background: rgba(255,255,255,.08); border-radius: 99px; overflow: hidden; }
+  .bar .fill { height: 100%; width: 0; background: var(--yellow); border-radius: 99px; transition: width .6s ease; }
+  .bar:nth-child(2n) .fill { background: var(--sky); }
+  .bar:nth-child(3n) .fill { background: var(--salmon); }
+  #stage .right { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2vh; text-align: center; }
+  #qr { background: #fff; padding: 1.2vw; border-radius: 1vw; width: 100%; aspect-ratio: 1; }
+  #qr img, #qr canvas { width: 100% !important; height: auto !important; display: block; }
+  .join { font-family: "Raleway", sans-serif; font-size: 1.5vw; color: var(--muted); }
+  .join strong { display: block; font-family: "Inter"; font-weight: 800; font-size: 3.2vw; color: var(--white); letter-spacing: .15em; }
+  #total { font-size: 1.5vw; color: var(--muted); }
+  #logo { position: absolute; right: 5vw; bottom: 2.5vh; height: 5.5vh; }
+  #debugStrip { position: absolute; left: 0; right: 0; bottom: 0; font: 11px/1.35 ui-monospace, Menlo, Consolas, monospace;
+    background: rgba(0,0,0,.72); color: #cfe; padding: 4px 8px; max-height: 30%; overflow: hidden; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #888; margin-right: 6px; vertical-align: middle; }
+  .dot.on { background: #4ade80; } .dot.off { background: #f87171; }
+
+  /* ---------- Pannello di configurazione (vista modifica) ---------- */
+  #editor { position: absolute; inset: 0; overflow: auto; background: #f5f6f4; color: var(--ink);
+    font-size: 13px; padding: 14px 16px 24px; }
+  #editor h1 { font-size: 15px; margin: 0 0 2px; }
+  #editor p.sub { margin: 0 0 12px; color: #5b6468; }
+  #editor .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  #editor label { display: block; font-weight: 600; margin: 10px 0 4px; }
+  #editor input[type=text], #editor textarea { width: 100%; padding: 7px 9px; border: 1px solid #c9cfd1; border-radius: 6px;
+    font: inherit; background: #fff; }
+  #editor textarea { min-height: 84px; resize: vertical; }
+  #editor .hint { color: #6b7478; font-size: 12px; margin-top: 3px; }
+  #editor .btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  #editor button { font: inherit; font-weight: 600; padding: 7px 12px; border-radius: 6px; border: 1px solid #02151f;
+    background: #02151f; color: #fff; cursor: pointer; }
+  #editor button.ghost { background: #fff; color: #02151f; }
+  #editor .status { margin-top: 12px; padding: 8px 10px; background: #fff; border: 1px solid #dde2e3; border-radius: 6px; }
+  #log { margin-top: 8px; height: 190px; overflow: auto; background: #0f1a1f; color: #cfe; padding: 8px;
+    font: 11px/1.4 ui-monospace, Menlo, Consolas, monospace; border-radius: 6px; white-space: pre-wrap; }
+  #editor .preview-btn { float: right; }
+</style>
+</head>
+<body>
+
+<div id="stage" class="hidden">
+  <div class="left">
+    <div class="kicker"><b>01</b><span>SONDAGGIO</span></div>
+    <div id="q">Domanda</div>
+    <div id="bars"></div>
+  </div>
+  <div class="right">
+    <div id="qr"></div>
+    <div class="join">Inquadra il QR o vai su<br><span id="joinUrl"></span><strong id="joinCode">—</strong></div>
+    <div id="total">0 risposte</div>
+  </div>
+  <img id="logo" src="assets/logo-negativo.png" alt="Taxi1729">
+  <div id="debugStrip"></div>
+</div>
+
+<div id="editor" class="hidden">
+  <button class="ghost preview-btn" id="btnPreview">Anteprima slide</button>
+  <h1>Taxi1729 Poll · prototipo</h1>
+  <p class="sub">Configura il sondaggio di questa slide. In proiezione verrà mostrata la grafica con il QR code.</p>
+  <div class="row">
+    <div>
+      <label for="fEvent">Codice evento</label>
+      <input type="text" id="fEvent" maxlength="12">
+      <div class="hint">Usa lo stesso codice in tutte le slide della presentazione.</div>
+      <label for="fQuestion">Domanda</label>
+      <input type="text" id="fQuestion">
+      <label for="fOptions">Opzioni di risposta (una per riga)</label>
+      <textarea id="fOptions"></textarea>
+      <label><input type="checkbox" id="fDebug"> Mostra la barra diagnostica anche in proiezione</label>
+      <div class="btns">
+        <button id="btnSave">Salva</button>
+        <button class="ghost" id="btnRedetect">Rileva di nuovo la slide</button>
+        <button class="ghost" id="btnSimulate">Simula proiezione (20 s)</button>
+        <button class="ghost" id="btnCopy">Copia diagnostica</button>
+      </div>
+    </div>
+    <div>
+      <div class="status">
+        <div><span class="dot" id="netDot"></span><span id="netText">Connessione…</span></div>
+        <div style="margin-top:4px">Questa slide: <b id="mySlide">non rilevata</b></div>
+        <div>Vista corrente: <b id="viewText">—</b></div>
+        <div>Stato verso il pubblico: <b id="activeText">non attiva</b></div>
+        <div>Link pubblico: <a id="linkPublic" target="_blank"></a></div>
+      </div>
+      <div id="log"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var C = window.T1729;
+  var $ = function (id) { return document.getElementById(id); };
+  var S = {                   // impostazioni salvate nel documento
+    eventCode: "1729", question: "Quanto conosci la comunicazione scientifica?",
+    options: ["Per niente", "Un po'", "Abbastanza", "Molto"], slideId: null, slideIndex: null, debug: true
+  };
+  var view = null, curSlide = null, active = false, simulateUntil = 0, preview = false;
+  var net = null, votes = {}, subscribedVotes = null, hbTimer = null;
+  var logLines = [];
+  var officeReady = false;
+
+  function ts() { var d = new Date(); return d.toTimeString().slice(0, 8) + "." + String(d.getMilliseconds()).padStart(3, "0"); }
+  function log(msg) {
+    var line = ts() + "  " + msg;
+    logLines.push(line); if (logLines.length > 400) logLines.shift();
+    var el = $("log"); el.textContent = logLines.slice().reverse().join("\n");
+    $("debugStrip").textContent = logLines.slice(-5).reverse().join("  |  ");
+  }
+
+  // ---------- Impostazioni nel documento ----------
+  function loadSettings() {
+    if (!officeReady) return;
+    var st = Office.context.document.settings;
+    ["eventCode", "question", "options", "slideId", "slideIndex", "debug"].forEach(function (k) {
+      var v = st.get(k); if (v !== null && v !== undefined) S[k] = v;
+    });
+  }
+  function saveSettings(cb) {
+    if (!officeReady) { cb && cb(); return; }
+    var st = Office.context.document.settings;
+    Object.keys(S).forEach(function (k) { st.set(k, S[k]); });
+    st.saveAsync(function (r) { log("impostazioni salvate: " + r.status); cb && cb(); });
+  }
+
+  // ---------- Quale slide è selezionata / in proiezione ----------
+  // Metodo A: API comune (Office 2013+). Metodo B: API PowerPoint moderna, se disponibile.
+  function readCurrentSlide(cb) {
+    Office.context.document.getSelectedDataAsync(Office.CoercionType.SlideRange, function (r) {
+      if (r.status === Office.AsyncResultStatus.Succeeded && r.value && r.value.slides && r.value.slides.length) {
+        var s = r.value.slides[0];
+        cb({ id: String(s.id), index: s.index, method: "A" });
+      } else {
+        readCurrentSlideB(function (b) { cb(b || { id: null, index: null, method: "A-errore: " + (r.error && r.error.message) }); });
+      }
+    });
+  }
+  function readCurrentSlideB(cb) {
+    try {
+      if (!(window.PowerPoint && Office.context.requirements.isSetSupported("PowerPointApi", "1.2"))) return cb(null);
+      PowerPoint.run(function (ctx) {
+        var sel = ctx.presentation.getSelectedSlides(); sel.load("items/id");
+        return ctx.sync().then(function () {
+          cb(sel.items.length ? { id: String(sel.items[0].id), index: null, method: "B" } : null);
+        });
+      }).catch(function (e) { cb({ id: null, index: null, method: "B-errore: " + e.message }); });
+    } catch (e) { cb(null); }
+  }
+  function sameSlide(cur) {
+    if (!cur || !S.slideId || !cur.id) return false;
+    // L'ID del metodo A è numerico ("257"), quello del metodo B può essere "257#123456": confrontiamo la parte iniziale.
+    return String(cur.id).split("#")[0] === String(S.slideId).split("#")[0];
+  }
+
+  function detectMySlide(force) {
+    if (S.slideId && !force) return;
+    readCurrentSlide(function (cur) {
+      if (cur.id) { S.slideId = cur.id; S.slideIndex = cur.index; saveSettings(); log("slide del sondaggio rilevata: id " + cur.id + " (n. " + cur.index + ", metodo " + cur.method + ")"); }
+      else log("impossibile rilevare la slide: " + cur.method);
+      renderStatus();
+    });
+  }
+
+  // ---------- Ciclo principale ----------
+  var lastCurKey = "";
+  function tick() {
+    if (!officeReady) { evaluate(); return; }
+    readCurrentSlide(function (cur) {
+      var key = cur.id + "|" + cur.index + "|" + cur.method;
+      if (key !== lastCurKey) { log("slide corrente: id " + cur.id + " n. " + cur.index + " (metodo " + cur.method + ")"); lastCurKey = key; }
+      curSlide = cur;
+      evaluate();
+    });
+  }
+  function evaluate() {
+    var shouldBeActive;
+    var reason;
+    if (Date.now() < simulateUntil) { shouldBeActive = true; reason = "simulazione"; }
+    else if (view !== "read") { shouldBeActive = false; reason = "vista modifica"; }
+    else if (curSlide && curSlide.id && S.slideId) { shouldBeActive = sameSlide(curSlide); reason = shouldBeActive ? "slide corrente = questa slide" : "slide corrente diversa"; }
+    else { shouldBeActive = document.visibilityState === "visible"; reason = "fallback visibilità (" + document.visibilityState + ")"; }
+    setActive(shouldBeActive, reason);
+  }
+  function setActive(on, reason) {
+    if (on === active) return;
+    active = on;
+    log((on ? "▶ ATTIVA" : "■ NON ATTIVA") + " — " + reason);
+    publishState();
+    clearInterval(hbTimer);
+    if (on) hbTimer = setInterval(publishState, C.HEARTBEAT_MS);
+    renderStatus();
+  }
+  function publishState() {
+    if (!net || !S.slideId) return;
+    var payload = { active: active, slideId: S.slideId, question: S.question, options: S.options, t: Date.now() };
+    net.publish(C.topic(S.eventCode, "slides", slideKey()), JSON.stringify(payload), { retain: true, qos: 0 });
+  }
+  function slideKey() { return String(S.slideId || "x").split("#")[0].replace(/[^A-Za-z0-9_-]/g, ""); }
+
+  // ---------- Voti ----------
+  function subscribeVotes() {
+    var t = C.topic(S.eventCode, "votes", slideKey());
+    if (subscribedVotes === t || !net) return;
+    subscribedVotes = t; votes = {};
+    net.subscribe(t); log("in ascolto dei voti su " + t); renderBars();
+  }
+  function onMessage(topic, buf) {
+    if (topic !== subscribedVotes) return;
+    try {
+      var m = JSON.parse(buf.toString());
+      if (typeof m.voter !== "string" || typeof m.option !== "number") return;
+      if (m.option < 0 || m.option >= S.options.length) return;
+      if (votes[m.voter] !== undefined) return;   // il voto non si può cambiare
+      votes[m.voter] = m.option; renderBars();
+    } catch (e) {}
+  }
+
+  // ---------- Rendering ----------
+  function renderSlide() {
+    $("q").textContent = S.question;
+    var base = location.href.replace(/addin\.html.*$/, "");
+    var url = base + "partecipa.html?e=" + encodeURIComponent(S.eventCode);
+    $("joinUrl").textContent = base.replace(/^https?:\/\//, "").replace(/\/$/, "");
+    $("joinCode").textContent = S.eventCode;
+    $("linkPublic").textContent = url; $("linkPublic").href = url;
+    var qr = $("qr"); qr.innerHTML = "";
+    if (window.QRCode) new QRCode(qr, { text: url, width: 512, height: 512, colorDark: "#02151f", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.M });
+    else qr.textContent = "QR non disponibile";
+    renderBars();
+  }
+  function renderBars() {
+    var counts = S.options.map(function () { return 0; }), total = 0;
+    Object.keys(votes).forEach(function (k) { counts[votes[k]]++; total++; });
+    var max = Math.max.apply(null, counts.concat([1]));
+    var html = S.options.map(function (o, i) {
+      var pct = total ? Math.round(counts[i] / total * 100) : 0;
+      return '<div class="bar"><div class="label"></div><div class="val">' + pct + '%</div>' +
+             '<div class="track"><div class="fill" style="width:' + (counts[i] / max * 100) + '%"></div></div></div>';
+    }).join("");
+    var bars = $("bars"); bars.innerHTML = html;
+    Array.prototype.forEach.call(bars.querySelectorAll(".label"), function (el, i) { el.textContent = S.options[i]; });
+    $("total").textContent = total + (total === 1 ? " risposta" : " risposte");
+  }
+  function renderStatus() {
+    $("mySlide").textContent = S.slideId ? ("id " + S.slideId + (S.slideIndex ? " (n. " + S.slideIndex + ")" : "")) : "non rilevata";
+    $("viewText").textContent = view === "read" ? "proiezione / lettura" : view === "edit" ? "modifica" : "—";
+    $("activeText").textContent = active ? "ATTIVA (il pubblico vede questa domanda)" : "non attiva";
+  }
+  function renderMode() {
+    var showStage = view === "read" || preview || !officeReady;
+    $("stage").classList.toggle("hidden", !showStage);
+    $("editor").classList.toggle("hidden", showStage);
+    $("debugStrip").classList.toggle("hidden", !(S.debug || !officeReady));
+    renderStatus();
+  }
+  function fillForm() {
+    $("fEvent").value = S.eventCode; $("fQuestion").value = S.question;
+    $("fOptions").value = S.options.join("\n"); $("fDebug").checked = !!S.debug;
+  }
+
+  // ---------- Avvio ----------
+  function startNetwork() {
+    if (!window.mqtt) { log("ERRORE: libreria di rete non caricata"); $("netText").textContent = "libreria di rete non caricata"; return; }
+    net = C.connect(function (txt, ok) {
+      log("rete: " + txt);
+      $("netText").textContent = txt; $("netDot").className = "dot " + (ok === true ? "on" : ok === false ? "off" : "");
+      if (ok) publishState();
+    });
+    net.onMessage(onMessage);
+    subscribeVotes();
+  }
+
+  function bindUi() {
+    $("btnSave").onclick = function () {
+      var oldTopic = subscribedVotes;
+      if (active) { active = false; publishState(); active = true; }
+      S.eventCode = ($("fEvent").value || "1729").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+      S.question = $("fQuestion").value.trim() || "Domanda";
+      S.options = $("fOptions").value.split("\n").map(function (s) { return s.trim(); }).filter(Boolean).slice(0, 8);
+      if (!S.options.length) S.options = ["Sì", "No"];
+      S.debug = $("fDebug").checked;
+      saveSettings(); fillForm(); renderSlide(); renderMode();
+      if (oldTopic !== C.topic(S.eventCode, "votes", slideKey())) subscribeVotes();
+      publishState();
+    };
+    $("btnRedetect").onclick = function () { detectMySlide(true); };
+    $("btnSimulate").onclick = function () { simulateUntil = Date.now() + 20000; log("simulazione avviata"); evaluate(); setTimeout(evaluate, 20100); };
+    $("btnPreview").onclick = function () { preview = true; renderMode(); };
+    $("stage").onclick = function () { if (preview) { preview = false; renderMode(); } };
+    $("btnCopy").onclick = function () {
+      var info = "Taxi1729 diagnostica\n" + navigator.userAgent + "\nhost: " + (officeReady ? Office.context.diagnostics.platform + " " + Office.context.diagnostics.version : "browser") +
+        "\nPowerPointApi 1.2: " + (officeReady && Office.context.requirements.isSetSupported("PowerPointApi", "1.2")) + "\n\n" + logLines.join("\n");
+      var ta = document.createElement("textarea"); ta.value = info; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); log("diagnostica copiata negli appunti"); } catch (e) { log("copia non riuscita"); }
+      document.body.removeChild(ta);
+    };
+    document.addEventListener("visibilitychange", function () { log("visibilità: " + document.visibilityState); tick(); });
+    window.addEventListener("pagehide", function () { if (active) { active = false; publishState(); } });
+  }
+
+  function start() {
+    bindUi();
+    if (typeof Office === "undefined" || !Office.onReady) { boot(false); return; }
+    Office.onReady(function (info) { boot(!!info && !!info.host); });
+  }
+  function boot(inOffice) {
+    officeReady = inOffice;
+    if (inOffice) {
+      loadSettings();
+      log("avvio in " + Office.context.diagnostics.platform + " " + Office.context.diagnostics.version);
+      Office.context.document.getActiveViewAsync(function (r) {
+        view = r.value; log("vista iniziale: " + view); renderMode(); tick();
+      });
+      Office.context.document.addHandlerAsync(Office.EventType.ActiveViewChanged, function (e) {
+        view = e.activeView; log("cambio vista: " + view); renderMode(); tick();
+      });
+      detectMySlide(false);
+      setInterval(tick, C.POLL_SLIDE_MS);
+    } else {
+      log("aperto fuori da PowerPoint: solo anteprima");
+    }
+    fillForm(); renderSlide(); renderMode(); startNetwork();
+  }
+  start();
+})();
+</script>
+</body>
+</html>
