@@ -42,6 +42,11 @@
   .join { font-family: "Raleway", sans-serif; font-size: 1.5vw; color: var(--muted); }
   .join strong { display: block; font-family: "Inter"; font-weight: 800; font-size: 3.2vw; color: var(--white); letter-spacing: .15em; }
   #total { font-size: 1.5vw; color: var(--muted); }
+  #stage.welcome { grid-template-columns: 1fr 36%; }
+  #stage.welcome #bars, #stage.welcome #total { display: none; }
+  #welcomeText { display: none; font-family: "Raleway", sans-serif; font-weight: 300; font-size: 2.2vw; line-height: 1.4; color: var(--muted); max-width: 90%; }
+  #stage.welcome #welcomeText { display: block; }
+  #stage.welcome #q { font-size: 5.6vw; }
   #logo { position: absolute; right: 5vw; bottom: 2.5vh; height: 5.5vh; }
   #debugStrip { position: absolute; left: 0; right: 0; bottom: 0; font: 11px/1.35 ui-monospace, Menlo, Consolas, monospace;
     background: rgba(0,0,0,.72); color: #cfe; padding: 4px 8px; max-height: 30%; overflow: hidden; }
@@ -73,8 +78,9 @@
 
 <div id="stage">
   <div class="left">
-    <div class="kicker"><b>01</b><span>SONDAGGIO</span></div>
+    <div class="kicker"><b id="kNum">01</b><span id="kText">SONDAGGIO</span></div>
     <div id="q"></div>
+    <div id="welcomeText">Inquadra il QR code con la fotocamera del telefono.<br>Durante l'evento le domande compariranno lì, in automatico.</div>
     <div id="bars"></div>
   </div>
   <div class="right">
@@ -95,13 +101,19 @@
       <label for="fEvent">Codice evento</label>
       <input type="text" id="fEvent" maxlength="12">
       <div class="hint">Usa lo stesso codice in tutte le slide della presentazione.</div>
-      <label for="fQuestion">Domanda</label>
+      <label>Tipo di slide</label>
+      <label style="font-weight:400;margin:2px 0"><input type="radio" name="fKind" value="poll"> Sondaggio (risposta multipla)</label>
+      <label style="font-weight:400;margin:2px 0"><input type="radio" name="fKind" value="welcome"> Benvenuto: solo QR code, senza domanda</label>
+      <label for="fQuestion" id="lblQuestion">Domanda</label>
       <input type="text" id="fQuestion">
-      <label for="fOptions">Opzioni di risposta (una per riga)</label>
-      <textarea id="fOptions"></textarea>
+      <div id="pollFields">
+        <label for="fOptions">Opzioni di risposta (una per riga)</label>
+        <textarea id="fOptions"></textarea>
+      </div>
       <label><input type="checkbox" id="fDebug"> Mostra la barra diagnostica anche in proiezione</label>
       <div class="btns">
         <button id="btnSave">Salva</button>
+        <button class="ghost" id="btnFit">Adatta a tutta la slide</button>
         <button class="ghost" id="btnRedetect">Rileva di nuovo la slide</button>
         <button class="ghost" id="btnSimulate">Simula proiezione (20 s)</button>
         <button class="ghost" id="btnCopy">Copia diagnostica</button>
@@ -126,7 +138,8 @@
   var $ = function (id) { return document.getElementById(id); };
   var S = {                   // impostazioni salvate nel documento
     eventCode: "1729", question: "Quanto conosci la comunicazione scientifica?",
-    options: ["Per niente", "Un po'", "Abbastanza", "Molto"], slideId: null, slideIndex: null, debug: true
+    options: ["Per niente", "Un po'", "Abbastanza", "Molto"], slideId: null, slideIndex: null, debug: true,
+    kind: "poll", title: "Partecipa dal tuo smartphone", fitted: false
   };
   var view = null, curSlide = null, active = false, simulateUntil = 0, preview = false;
   var net = null, votes = {}, subscribedVotes = null, hbTimer = null;
@@ -161,7 +174,7 @@
   function loadSettings() {
     if (!officeReady) return;
     var st = Office.context.document.settings;
-    ["eventCode", "question", "options", "slideId", "slideIndex", "debug"].forEach(function (k) {
+    ["eventCode", "question", "options", "slideId", "slideIndex", "debug", "kind", "title", "fitted"].forEach(function (k) {
       var v = st.get(k); if (v !== null && v !== undefined) S[k] = v;
     });
   }
@@ -229,7 +242,8 @@
   function evaluate() {
     var shouldBeActive;
     var reason;
-    if (Date.now() < simulateUntil) { shouldBeActive = true; reason = "simulazione"; }
+    if (S.kind === "welcome") { shouldBeActive = false; reason = "slide di benvenuto (nessuna domanda)"; }
+    else if (Date.now() < simulateUntil) { shouldBeActive = true; reason = "simulazione"; }
     else if (view !== "read") { shouldBeActive = false; reason = "vista modifica"; }
     else if (curSlide && curSlide.id && S.slideId) { shouldBeActive = sameSlide(curSlide); reason = shouldBeActive ? "slide corrente = questa slide" : "slide corrente diversa"; }
     else { shouldBeActive = document.visibilityState === "visible"; reason = "fallback visibilità (" + document.visibilityState + ")"; }
@@ -251,6 +265,39 @@
   }
   function slideKey() { return String(S.slideId || "x").split("#")[0].replace(/[^A-Za-z0-9_-]/g, ""); }
 
+  // ---------- Riquadro a tutta slide ----------
+  // Allarga il riquadro dell'add-in a tutta la slide. In automatico lo fa una sola volta, appena inserito;
+  // con il pulsante "Adatta a tutta la slide" si può rifare quando si vuole.
+  function fitToSlide(manual) {
+    if (!(window.PowerPoint && Office.context.requirements.isSetSupported("PowerPointApi", "1.5"))) {
+      log("ridimensionamento automatico non supportato da questa versione di PowerPoint"); return;
+    }
+    var W = 960, H = 540;
+    PowerPoint.run(function (ctx) {
+      var sizeP = Promise.resolve();
+      if (Office.context.requirements.isSetSupported("PowerPointApi", "1.10") && ctx.presentation.pageSetup) {
+        var ps = ctx.presentation.pageSetup; ps.load("slideWidth,slideHeight");
+        sizeP = ctx.sync().then(function () { W = ps.slideWidth; H = ps.slideHeight; }).catch(function () {});
+      }
+      return sizeP.then(function () {
+        var sel = ctx.presentation.getSelectedSlides(); sel.load("items/id");
+        return ctx.sync().then(function () {
+          if (!sel.items.length) { log("adatta: nessuna slide selezionata"); return; }
+          var slideId = String(sel.items[0].id).split("#")[0];
+          if (!manual && slideId !== String(S.slideId).split("#")[0]) { log("adatta: la slide selezionata non è la mia, salto"); return; }
+          var shapes = sel.items[0].shapes; shapes.load("items/type,items/name,items/width,items/height");
+          return ctx.sync().then(function () {
+            var apps = shapes.items.filter(function (sh) { return /content\s*app|addin|webextension/i.test(String(sh.type)); });
+            log("adatta: forme nella slide = " + shapes.items.map(function (sh) { return sh.type; }).join(", ") + " · dimensione slide " + W + "×" + H);
+            if (!apps.length) { log("adatta: riquadro dell'add-in non trovato"); return; }
+            apps.forEach(function (sh) { sh.left = 0; sh.top = 0; sh.width = W; sh.height = H; });
+            return ctx.sync().then(function () { S.fitted = true; saveSettings(); log("riquadro adattato a tutta la slide"); });
+          });
+        });
+      });
+    }).catch(function (e) { log("adatta: errore " + e.message); });
+  }
+
   // ---------- Voti ----------
   function subscribeVotes() {
     var t = C.topic(S.eventCode, "votes", slideKey());
@@ -271,7 +318,11 @@
 
   // ---------- Rendering ----------
   function renderSlide() {
-    $("q").textContent = S.question;
+    var welcome = S.kind === "welcome";
+    $("stage").classList.toggle("welcome", welcome);
+    $("q").textContent = welcome ? S.title : S.question;
+    $("kText").textContent = welcome ? "BENVENUTI" : "SONDAGGIO";
+    $("kNum").textContent = welcome ? "00" : "01";
     var base = location.href.replace(/addin\.html.*$/, "");
     var url = base + "partecipa.html?e=" + encodeURIComponent(S.eventCode);
     $("joinUrl").textContent = base.replace(/^https?:\/\//, "").replace(/\/$/, "");
@@ -307,8 +358,14 @@
     $("debugStrip").classList.toggle("hidden", !(S.debug || !officeReady));
     renderStatus();
   }
+  function kindUi(k) {
+    $("pollFields").classList.toggle("hidden", k === "welcome");
+    $("lblQuestion").textContent = k === "welcome" ? "Titolo della slide" : "Domanda";
+  }
   function fillForm() {
-    $("fEvent").value = S.eventCode; $("fQuestion").value = S.question;
+    $("fEvent").value = S.eventCode; $("fQuestion").value = S.kind === "welcome" ? S.title : S.question;
+    Array.prototype.forEach.call(document.getElementsByName("fKind"), function (r) { r.checked = r.value === S.kind; });
+    kindUi(S.kind);
     $("fOptions").value = S.options.join("\n"); $("fDebug").checked = !!S.debug;
   }
 
@@ -329,7 +386,10 @@
       var oldTopic = subscribedVotes;
       if (active) { active = false; publishState(); active = true; }
       S.eventCode = ($("fEvent").value || "1729").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-      S.question = $("fQuestion").value.trim() || "Domanda";
+      var kindEl = document.querySelector('input[name="fKind"]:checked');
+      S.kind = kindEl ? kindEl.value : "poll";
+      if (S.kind === "welcome") S.title = $("fQuestion").value.trim() || "Partecipa dal tuo smartphone";
+      else S.question = $("fQuestion").value.trim() || "Domanda";
       S.options = $("fOptions").value.split("\n").map(function (s) { return s.trim(); }).filter(Boolean).slice(0, 8);
       if (!S.options.length) S.options = ["Sì", "No"];
       S.debug = $("fDebug").checked;
@@ -337,6 +397,10 @@
       if (oldTopic !== C.topic(S.eventCode, "votes", slideKey())) subscribeVotes();
       publishState();
     };
+    Array.prototype.forEach.call(document.getElementsByName("fKind"), function (r) {
+      r.onchange = function () { kindUi(r.value); $("fQuestion").value = r.value === "welcome" ? S.title : S.question; };
+    });
+    $("btnFit").onclick = function () { fitToSlide(true); };
     $("btnRedetect").onclick = function () { detectMySlide(true); };
     $("btnSimulate").onclick = function () { simulateUntil = Date.now() + 20000; log("simulazione avviata"); evaluate(); setTimeout(evaluate, 20100); };
     $("btnPreview").onclick = function () { preview = true; renderMode(); };
@@ -368,6 +432,7 @@
       log("avvio in " + Office.context.diagnostics.platform + " " + Office.context.diagnostics.version);
       Office.context.document.getActiveViewAsync(function (r) {
         view = r.value; log("vista iniziale: " + view + " (dopo " + (Date.now() - T0) + " ms)"); renderMode(); tick(); if (view === "read") nudgeRepaint();
+        if (view === "edit" && !S.fitted) setTimeout(function () { fitToSlide(false); }, 800);
       });
       Office.context.document.addHandlerAsync(Office.EventType.ActiveViewChanged, function (e) {
         view = e.activeView; log("cambio vista: " + view); renderMode(); tick(); if (view === "read") nudgeRepaint();
