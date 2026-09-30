@@ -18,36 +18,40 @@
     font-family: "Inter", system-ui, sans-serif; overflow: hidden; }
   .hidden { display: none !important; }
 
-  /* ---------- Vista slide (proiezione e anteprima) ---------- */
-  #stage { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 28%;
-    gap: 4vw; padding: 5vh 5vw 7vh; }
-  #stage .left { display: flex; flex-direction: column; min-width: 0; }
-  .kicker { font-family: "Raleway", sans-serif; font-weight: 300; font-size: 2.6vw; color: var(--yellow);
-    display: flex; align-items: baseline; gap: .6vw; }
-  .kicker b { font-weight: 300; font-size: 4.5vw; color: var(--white); }
-  .kicker b::after { content: ""; display: inline-block; width: .8vw; height: .8vw; border-radius: 50%;
-    background: var(--yellow); margin-left: .3vw; }
-  #q { font-weight: 800; font-size: 4.4vw; line-height: 1.08; letter-spacing: -.02em; margin: 2.5vh 0 4vh; }
-  #bars { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 2.2vh; }
-  .bar { display: grid; grid-template-columns: 1fr auto; gap: .6vh 1.5vw; align-items: end; }
-  .bar .label { font-family: "Raleway", sans-serif; font-weight: 500; font-size: 2.1vw; }
-  .bar .val { font-weight: 800; font-size: 2.1vw; color: var(--yellow); font-variant-numeric: tabular-nums; }
-  .bar .track { grid-column: 1 / -1; height: 2.4vh; background: rgba(255,255,255,.08); border-radius: 99px; overflow: hidden; }
+  /* ---------- Vista slide (proiezione e anteprima) ----------
+     La slide è disegnata su una tela fissa 1920×1080 che viene rimpicciolita (o ingrandita)
+     per stare sempre tutta nel riquadro, qualunque siano schermo e proporzioni. */
+  #stage { position: absolute; inset: 0; background: var(--navy); overflow: hidden; }
+  #canvas { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0;
+    display: grid; grid-template-columns: 1fr 28%; gap: 77px; padding: 54px 96px 90px; }
+  #stage .left { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+  .kicker { font-family: "Raleway", sans-serif; font-weight: 300; font-size: 50px; color: var(--yellow);
+    display: flex; align-items: baseline; gap: 12px; }
+  .kicker b { font-weight: 300; font-size: 86px; color: var(--white); }
+  .kicker b::after { content: ""; display: inline-block; width: 15px; height: 15px; border-radius: 50%;
+    background: var(--yellow); margin-left: 6px; }
+  .left { --k: 1; }
+  #q { font-weight: 800; font-size: calc(84px * var(--k)); line-height: 1.08; letter-spacing: -.02em; margin: calc(27px * var(--k)) 0 calc(43px * var(--k)); }
+  #bars { flex: none; display: flex; flex-direction: column; justify-content: center; gap: calc(24px * var(--k)); margin: auto 0; }
+  .bar { display: grid; grid-template-columns: 1fr auto; gap: calc(6px * var(--k)) 29px; align-items: end; }
+  .bar .label { font-family: "Raleway", sans-serif; font-weight: 500; font-size: calc(40px * var(--k)); }
+  .bar .val { font-weight: 800; font-size: calc(40px * var(--k)); color: var(--yellow); font-variant-numeric: tabular-nums; }
+  .bar .track { grid-column: 1 / -1; height: calc(26px * var(--k)); background: rgba(255,255,255,.08); border-radius: 99px; overflow: hidden; }
   .bar .fill { height: 100%; width: 0; background: var(--yellow); border-radius: 99px; transition: width .6s ease; }
   .bar:nth-child(2n) .fill { background: var(--sky); }
   .bar:nth-child(3n) .fill { background: var(--salmon); }
-  #stage .right { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2vh; text-align: center; }
-  #qr { background: #fff; padding: 1.2vw; border-radius: 1vw; width: 100%; aspect-ratio: 1; }
+  #stage .right { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; text-align: center; min-height: 0; }
+  #qr { background: #fff; padding: 23px; border-radius: 19px; width: 100%; aspect-ratio: 1; }
   #qr img, #qr canvas { width: 100% !important; height: auto !important; display: block; }
-  .join { font-family: "Raleway", sans-serif; font-size: 1.5vw; color: var(--muted); }
-  .join strong { display: block; font-family: "Inter"; font-weight: 800; font-size: 3.2vw; color: var(--white); letter-spacing: .15em; }
-  #total { font-size: 1.5vw; color: var(--muted); }
-  #stage.welcome { grid-template-columns: 1fr 36%; }
+  .join { font-family: "Raleway", sans-serif; font-size: 29px; color: var(--muted); }
+  .join strong { display: block; font-family: "Inter"; font-weight: 800; font-size: 61px; color: var(--white); letter-spacing: .15em; }
+  #total { font-size: 29px; color: var(--muted); }
+  #stage.welcome #canvas { grid-template-columns: 1fr 34%; }
   #stage.welcome #bars, #stage.welcome #total { display: none; }
-  #welcomeText { display: none; font-family: "Raleway", sans-serif; font-weight: 300; font-size: 2.2vw; line-height: 1.4; color: var(--muted); max-width: 90%; }
+  #welcomeText { display: none; font-family: "Raleway", sans-serif; font-weight: 300; font-size: 42px; line-height: 1.4; color: var(--muted); max-width: 90%; }
   #stage.welcome #welcomeText { display: block; }
-  #stage.welcome #q { font-size: 5.6vw; }
-  #logo { position: absolute; right: 5vw; bottom: 2.5vh; height: 5.5vh; }
+  #stage.welcome #q { font-size: 108px; }
+  #logo { position: absolute; right: 96px; bottom: 27px; height: 59px; }
   #debugStrip { position: absolute; left: 0; right: 0; bottom: 0; font: 11px/1.35 ui-monospace, Menlo, Consolas, monospace;
     background: rgba(0,0,0,.72); color: #cfe; padding: 4px 8px; max-height: 30%; overflow: hidden; }
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #888; margin-right: 6px; vertical-align: middle; }
@@ -77,6 +81,7 @@
 <body>
 
 <div id="stage">
+ <div id="canvas">
   <div class="left">
     <div class="kicker"><b id="kNum">01</b><span id="kText">SONDAGGIO</span></div>
     <div id="q"></div>
@@ -89,6 +94,7 @@
     <div id="total">0 risposte</div>
   </div>
   <img id="logo" src="assets/logo-negativo.png" alt="Taxi1729">
+ </div>
   <div id="debugStrip"></div>
 </div>
 
@@ -156,6 +162,7 @@
     var n = 0;
     var iv = setInterval(function () {
       document.body.style.transform = (n % 2) ? "translateZ(0)" : "none";
+      fitCanvas();
       void document.body.offsetHeight;
       if (++n >= 12) { clearInterval(iv); document.body.style.transform = "none"; }
     }, 250);
@@ -316,6 +323,29 @@
     } catch (e) {}
   }
 
+  // ---------- Adattamento della tela al riquadro ----------
+  var lastFit = "";
+  function fitCanvas() {
+    var w = window.innerWidth || document.documentElement.clientWidth, h = window.innerHeight || document.documentElement.clientHeight;
+    if (!w || !h) return;
+    var k = Math.min(w / 1920, h / 1080);
+    var c = $("canvas");
+    c.style.transform = "scale(" + k + ")";
+    c.style.left = ((w - 1920 * k) / 2) + "px";
+    c.style.top = ((h - 1080 * k) / 2) + "px";
+    var key = w + "x" + h;
+    if (key !== lastFit) { lastFit = key; if (officeReady) log("riquadro " + key + " px · scala " + k.toFixed(3)); }
+  }
+  window.addEventListener("resize", fitCanvas);
+  setInterval(fitCanvas, 1000);
+
+  // Se domanda e opzioni non entrano nella colonna, riduce gradualmente testo e barre.
+  function shrinkToFit() {
+    var left = document.querySelector("#stage .left"); if (!left) return;
+    var k = 1; left.style.setProperty("--k", k);
+    while (k > 0.45 && left.scrollHeight > left.clientHeight + 1) { k -= 0.05; left.style.setProperty("--k", k.toFixed(2)); }
+  }
+
   // ---------- Rendering ----------
   function renderSlide() {
     var welcome = S.kind === "welcome";
@@ -344,6 +374,7 @@
     }).join("");
     var bars = $("bars"); bars.innerHTML = html;
     Array.prototype.forEach.call(bars.querySelectorAll(".label"), function (el, i) { el.textContent = S.options[i]; });
+    shrinkToFit();
     $("total").textContent = total + (total === 1 ? " risposta" : " risposte");
   }
   function renderStatus() {
@@ -356,6 +387,7 @@
     $("stage").classList.toggle("hidden", !showStage);
     $("editor").classList.toggle("hidden", showStage);
     $("debugStrip").classList.toggle("hidden", !(S.debug || !officeReady));
+    fitCanvas();
     renderStatus();
   }
   function kindUi(k) {
