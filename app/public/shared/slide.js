@@ -77,7 +77,7 @@
     var logo = h("img", "t-logo"); logo.src = "/assets/logo-negativo.png"; logo.alt = "Taxi1729"; canvas.appendChild(logo);
     var notice = h("div", "t-notice hidden"); canvas.appendChild(notice);
 
-    var st = { mode: "question", code: null, eventName: "", q: null, number: 1, res: null, revealed: false, welcomeTitle: "", chartOverride: null, armed: false, answer: false };
+    var st = { mode: "question", code: null, eventName: "", q: null, number: 1, res: null, revealed: false, welcomeTitle: "", chartOverride: null, armed: false, answer: false, qonly: false };
     var view = null;             // grafico attualmente disegnato
     var pendingIntro = 0;        // animazione di comparsa richiesta prima che arrivassero i risultati
 
@@ -118,7 +118,9 @@
       kTxt.textContent = welcome ? "BENVENUTI" : (st.eventName || "SONDAGGIO");
       if (welcome) { title.className = "t-title"; title.textContent = st.welcomeTitle || "Partecipa con il tuo smartphone"; chart.innerHTML = ""; view = null; return; }
       var q = st.q || { title: "", options: [] };
-      var cw = q.kind === "cw", noTitle = cw && !q.showTitle;
+      var cw = q.kind === "cw", qonly = cw && st.qonly, noTitle = cw && !q.showTitle && !qonly;
+      stage.classList.toggle("qonly", qonly);
+      chart.classList.toggle("hidden", qonly);
       var tt = noTitle ? "" : (q.title || "");
       if (title.textContent !== tt) title.textContent = tt;
       title.className = "t-title" + (tt.length > 110 ? " s" : tt.length > 60 ? " m" : "") + (tt ? "" : " hidden");
@@ -128,6 +130,7 @@
       totalLab.textContent = tot === 1 ? " risposta" : " risposte";
       // il grafico parte sempre sotto il QR e il suo codice (in alto a destra)…
       chart.style.marginTop = "0px"; chart.style.marginRight = "0px";
+      if (qonly) { chart.innerHTML = ""; view = null; return; }   // Crowd Wisdom "mostra domanda": solo il testo
       if (noTitle) {
         // …tranne il Crowd Wisdom senza domanda scritta: sale subito sotto il nome dell'evento, a fianco del QR
         chart.style.marginTop = "44px"; chart.style.marginRight = "250px";
@@ -674,6 +677,12 @@
         on = !!on; if (st.answer === on) return;
         st.answer = on; if (view && view.setAnswer) view.setAnswer(on);
       },
+      // Crowd Wisdom: slide con la sola domanda (true) o con i risultati (false)
+      setQuestionOnly: function (on) {
+        on = !!on; if (st.qonly === on) return;
+        st.qonly = on; render();
+        if (!on) api.playIntro();
+      },
       setRevealed: function (on) {
         if (st.revealed === !!on) return;
         st.revealed = !!on; render();
@@ -681,7 +690,7 @@
       },
       // Animazione di comparsa dei risultati: da chiamare quando la slide (o la sua versione con i risultati) compare.
       playIntro: function () {
-        if (st.mode !== "question" || !st.q) return;
+        if (st.mode !== "question" || !st.q || (st.q.kind === "cw" && st.qonly)) return;
         if (st.q.reveal === "click" && !st.revealed) return;
         st.armed = false;
         if (view && view.intro && currentRes()) view.intro(st.q, currentRes());

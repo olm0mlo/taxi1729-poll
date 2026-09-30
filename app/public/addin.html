@@ -62,6 +62,7 @@
     results: "hidden",              // domande con risultati "su click": in questa slide nascosti o visibili
     chart: "",                      // grafico di questa slide ("" = quello della domanda)
     answer: "hidden",               // Crowd Wisdom: risposta esatta in questa slide nascosta o visibile
+    content: "results",             // Crowd Wisdom: questa slide mostra la domanda ("question") o i risultati
     slideId: null, slideIndex: null, fitted: false, debug: false
   };
   var KEYS = Object.keys(S);
@@ -200,6 +201,7 @@
     slide.setEvent(S.eventCode ? { code: S.eventCode, name: S.eventName } : null);
     slide.setChartOverride(S.chart || null);
     slide.setAnswerVisible(S.answer === "shown");
+    slide.setQuestionOnly(S.content === "question");
     if (S.kind === "welcome") slide.setWelcome(S.welcomeTitle);
     else if (S.snapshot) {
       slide.setQuestion(Object.assign({ id: S.questionId }, S.snapshot), S.number);
@@ -326,7 +328,13 @@
             '<div class="hint">Per mostrare le risposte senza cliccare: <b>duplica questa slide</b> e nella copia scegli <b>Visibili</b>. ' +
             'In presentazione, premendo avanti le risposte compariranno. Il pubblico può continuare a votare anche sulla slide dei risultati.</div>';
         }
-        if (S.snapshot && S.snapshot.kind === "cw" && S.snapshot.answer != null && !missing) {
+        if (S.snapshot && S.snapshot.kind === "cw" && !missing) {
+          html += '<label class="lbl">In questa slide</label><div class="seg">' +
+            '<label><input type="radio" name="cont" value="question"' + (S.content === "question" ? " checked" : "") + '>Mostra domanda</label>' +
+            '<label><input type="radio" name="cont" value="results"' + (S.content !== "question" ? " checked" : "") + '>Mostra risultati</label></div>' +
+            '<div class="hint">Per far comparire i risultati premendo avanti: qui scegli <b>Mostra domanda</b>, poi <b>duplica la slide</b> e nella copia scegli <b>Mostra risultati</b>. Il pubblico può votare in entrambe.</div>';
+        }
+        if (S.snapshot && S.snapshot.kind === "cw" && S.snapshot.answer != null && !missing && S.content !== "question") {
           html += '<label class="lbl">Risposta esatta in questa slide</label><div class="seg">' +
             '<label><input type="radio" name="ans" value="hidden"' + (S.answer !== "shown" ? " checked" : "") + '>Nascosta</label>' +
             '<label><input type="radio" name="ans" value="shown"' + (S.answer === "shown" ? " checked" : "") + '>Visibile (' + esc(T.fmtNum(S.snapshot.answer)) + ')</label></div>' +
@@ -335,7 +343,7 @@
         if (missing) html += '<div class="banner red">La domanda scelta per questa slide è stata eliminata. Scegline un\'altra o creane una nuova.</div>';
         if (copyNotice) html += '<div class="banner">Questa slide sembra una <b>copia</b> di un\'altra slide: entrambe mostrano la stessa domanda (stessi voti).' +
           '<div class="qe-actions" style="margin-top:8px">' +
-          (S.snapshot && S.snapshot.reveal === "click" ? '<button class="btn small" id="bResSlide">È la slide dei risultati</button>' : '') +
+          (S.snapshot && (S.snapshot.reveal === "click" || S.snapshot.kind === "cw") ? '<button class="btn small" id="bResSlide">È la slide dei risultati</button>' : '') +
           (S.snapshot && S.snapshot.kind === "cw" && S.snapshot.answer != null ? '<button class="btn small" id="bAnsSlide">È la slide della risposta esatta</button>' : '') +
           '<button class="btn ' + (S.snapshot && S.snapshot.reveal === "click" ? 'ghost ' : '') + 'small" id="bDupQ">Crea una domanda indipendente</button>' +
           '<button class="btn ghost small" id="bKeep">Va bene così</button></div></div>';
@@ -368,7 +376,7 @@
       r.onchange = function () { S.kind = r.value; saveSettings(); drawEditor(); };
     });
     if ($("selQ")) $("selQ").onchange = function () {
-      S.questionId = this.value || null; missing = false; copyNotice = false; S.results = "hidden"; S.chart = ""; S.answer = "hidden";
+      S.questionId = this.value || null; missing = false; copyNotice = false; S.results = "hidden"; S.chart = ""; S.answer = "hidden"; S.content = "results";
       var q = questions.find(function (x) { return x.id === S.questionId; });
       S.snapshot = q ? q.data : null; S.number = q ? q.pos : 1; lastResults = null;
       saveSettings(); drawEditor();
@@ -386,7 +394,10 @@
     Array.prototype.forEach.call(document.querySelectorAll('input[name="ans"]'), function (r) {
       r.onchange = function () { S.answer = r.value; saveSettings(); drawMini(); };
     });
-    if ($("bResSlide")) $("bResSlide").onclick = function () { S.results = "shown"; copyNotice = false; saveSettings(); drawEditor(); };
+    Array.prototype.forEach.call(document.querySelectorAll('input[name="cont"]'), function (r) {
+      r.onchange = function () { S.content = r.value; saveSettings(); drawEditor(); };
+    });
+    if ($("bResSlide")) $("bResSlide").onclick = function () { S.results = "shown"; S.content = "results"; copyNotice = false; saveSettings(); drawEditor(); };
     Array.prototype.forEach.call(document.querySelectorAll('input[name="sch"]'), function (r) {
       r.onchange = function () { S.chart = r.value; saveSettings(); drawMini(); };
     });
@@ -406,6 +417,7 @@
     mini.setEvent(S.eventCode ? { code: S.eventCode, name: S.eventName } : null);
     mini.setChartOverride(S.chart || null);
     mini.setAnswerVisible(S.answer === "shown");
+    mini.setQuestionOnly(S.content === "question");
     if (S.kind === "welcome") mini.setWelcome(S.welcomeTitle);
     else if (S.snapshot) { mini.setQuestion(Object.assign({ id: S.questionId }, S.snapshot), S.number); mini.setRevealed(isRevealed()); }
     else mini.setWelcome(S.eventId ? "Scegli o crea una domanda" : "Scegli un evento");

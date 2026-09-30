@@ -27,4 +27,5 @@ Al primo avvio, aprendo `/admin` si crea il primo utente.
   messaggio di errore personalizzabile). Risultato: istogramma con linea della mediana o della media e, se indicata,
   la risposta esatta (gialla), visibile solo nelle slide in cui la si sceglie (add-in) o con il tasto **A** (browser).
   Le colonne sono automatiche o fissate a mano; le stime fuori scala finiscono nelle colonne "sotto…"/"oltre…".
+  Ogni slide può mostrare la sola domanda ("Mostra domanda") o i risultati ("Mostra risultati"); nel browser tasto **Q**.
   L'esportazione CSV riporta mediana, media, minimo, massimo e tutte le stime.

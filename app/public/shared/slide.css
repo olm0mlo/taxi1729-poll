@@ -87,3 +87,7 @@
 .t-hist .ln.stat { border-left: 4px dashed #fff; }
 .t-hist .ln.ans { border-left: 4px solid #e8ea6e; }
 .t-hist .off { opacity: 0; }
+
+/* Crowd Wisdom "mostra domanda": solo il testo, grande e centrato in verticale */
+.t-stage.qonly .t-title { margin: auto 0; font-size: 96px; line-height: 1.08; padding-bottom: 40px; }
+.t-stage.qonly .t-title.m { font-size: 80px; } .t-stage.qonly .t-title.s { font-size: 64px; }
