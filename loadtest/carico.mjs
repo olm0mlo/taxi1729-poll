@@ -108,9 +108,19 @@ class Presenter {
   stop() { clearInterval(this.beat); try { this.ws.send(JSON.stringify({ t: "stop" })); this.ws.close(); } catch {} }
 }
 
+const t00 = Date.now();
+// Riepilogo in tabella (anche nella pagina "Summary" di GitHub), scritto anche se il test si interrompe a metà.
+async function writeSummary(extra) {
+  const summary = [`## Test di carico Taxi1729 Poll`, ``, `Server: ${BASE} · Telefoni simulati: ${USERS} · Durata: ${Math.round((Date.now() - t00) / 1000)} s`, ``,
+    `| Esito | Prova | Dettagli |`, `|---|---|---|`,
+    ...results.map((r) => `| ${r.ok ? "✅" : "❌"} | ${r.name} | ${r.detail} |`), ``,
+    extra ? `**Test interrotto:** ${extra}` : failures ? `**${failures} prove non superate.**` : `**Tutte le prove superate.**`].join("\n");
+  console.log("\n" + summary);
+  if (process.env.GITHUB_STEP_SUMMARY) (await import("node:fs")).appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + "\n");
+}
+
 async function main() {
   console.log(`Test su ${BASE} con ${USERS} telefoni\n`);
-  const t00 = Date.now();
   token = (await api("login", { email: process.env.EMAIL, password: process.env.PASSWORD })).token;
   const ev = (await api("events", { name: "Test di carico " + new Date().toISOString().slice(0, 16).replace("T", " ") })).event;
   console.log(`Evento di prova creato: ${ev.name} (codice ${ev.code})`);
@@ -223,13 +233,8 @@ async function main() {
     if (!KEEP) { await api(`events/${ev.id}`, null, "DELETE").catch((e) => console.log("pulizia non riuscita:", e.message)); console.log("Evento di prova cancellato."); }
   }
 
-  const summary = [`## Test di carico Taxi1729 Poll`, ``, `Server: ${BASE} · Telefoni simulati: ${USERS} · Durata: ${Math.round((Date.now() - t00) / 1000)} s`, ``,
-    `| Esito | Prova | Dettagli |`, `|---|---|---|`,
-    ...results.map((r) => `| ${r.ok ? "✅" : "❌"} | ${r.name} | ${r.detail} |`), ``,
-    failures ? `**${failures} prove non superate.**` : `**Tutte le prove superate.**`].join("\n");
-  console.log("\n" + summary);
-  if (process.env.GITHUB_STEP_SUMMARY) (await import("node:fs")).appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + "\n");
+  await writeSummary();
   process.exit(failures ? 1 : 0);
 }
 
-main().catch((e) => { console.error("Test interrotto:", e.message); process.exit(2); });
+main().catch(async (e) => { console.error("Test interrotto:", e.message); await writeSummary(e.message); process.exit(2); });
