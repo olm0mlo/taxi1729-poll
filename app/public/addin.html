@@ -208,7 +208,11 @@
       var on = live.q === S.questionId && live.revealed;
       addBtn(on ? "Nascondi le risposte" : "Mostra le risposte", function () { conn && conn.send({ t: "reveal", q: S.questionId, on: !on }); });
     }
-    function addBtn(label, fn, cls) { var b = document.createElement("button"); b.textContent = label; if (cls) b.className = cls; b.onclick = fn; box.appendChild(b); }
+    function addBtn(label, fn, cls) {
+      var b = document.createElement("button"); b.textContent = label; if (cls) b.className = cls;
+      b.onclick = function (e) { fn(e); b.blur(); };
+      box.appendChild(b);
+    }
   }
   function renderMode() {
     var showStage = view === "read" || preview || !officeReady;
@@ -466,6 +470,31 @@
     window.addEventListener("focus", function () { if (view === "edit") setTimeout(function () { detectMySlide(true); }, 200); });
     document.addEventListener("mousedown", function () { if (view === "edit") setTimeout(function () { detectMySlide(true); }, 200); });
   }
+  // Dopo un clic dentro la slide, PowerPoint passa i tasti all'add-in: li inoltriamo noi a PowerPoint,
+  // così frecce, barra spaziatrice e telecomandi per presentazioni continuano a cambiare slide.
+  var NEXT_KEYS = ["ArrowRight", "ArrowDown", "PageDown", " ", "Spacebar", "Enter", "n", "N"];
+  var PREV_KEYS = ["ArrowLeft", "ArrowUp", "PageUp", "Backspace", "p", "P"];
+  function goSlide(where) {
+    try {
+      Office.context.document.goToByIdAsync(where, Office.GoToType.Index, function (r) {
+        if (r.status !== Office.AsyncResultStatus.Succeeded) log("cambio slide non riuscito: " + (r.error && r.error.message));
+      });
+    } catch (e) { log("cambio slide non disponibile: " + e.message); }
+  }
+  document.addEventListener("keydown", function (e) {
+    if (!officeReady || view !== "read") return;
+    var k = e.key, target = null;
+    if (NEXT_KEYS.indexOf(k) >= 0) target = Office.Index.Next;
+    else if (PREV_KEYS.indexOf(k) >= 0) target = Office.Index.Previous;
+    else if (k === "Home") target = Office.Index.First;
+    else if (k === "End") target = Office.Index.Last;
+    else if ((k === "r" || k === "R") && active && S.snapshot && S.snapshot.reveal === "click" && conn) {
+      e.preventDefault(); conn.send({ t: "reveal", q: S.questionId, on: !(live.q === S.questionId && live.revealed) }); return;
+    }
+    if (target === null) return;
+    e.preventDefault(); log("tasto " + k + " inoltrato a PowerPoint"); goSlide(target);
+  }, true);
+
   document.addEventListener("visibilitychange", function () { log("visibilità: " + document.visibilityState); tick(); if (document.visibilityState === "visible") nudgeRepaint(); });
   window.addEventListener("pagehide", function () { if (active && conn && S.kind === "question" && S.questionId) conn.send({ t: "hide", q: S.questionId }); });
   T.loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js", function (ok) { log(ok ? "libreria QR caricata" : "ERRORE libreria QR"); slide.redrawQr(); if (mini) mini.redrawQr(); });

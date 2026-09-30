@@ -95,11 +95,12 @@
       document.getElementById("take").onclick = function () { force = true; overlay(""); go(idx); setTimeout(function () { force = false; }, 3000); };
     }
   }
-  document.getElementById("prev").onclick = function () { go(idx - 1); };
-  document.getElementById("next").onclick = function () { go(idx + 1); };
+  document.getElementById("prev").onclick = function () { this.blur(); go(idx - 1); };
+  document.getElementById("next").onclick = function () { this.blur(); go(idx + 1); };
   document.getElementById("reveal").onclick = toggleReveal;
   document.getElementById("fs").onclick = toggleFs;
   function toggleReveal() {
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     var q = current(); if (!q || q.data.reveal !== "click") return;
     var on = !(live.q === q.id && live.revealed);
     conn.send({ t: "reveal", q: q.id, on: on });
