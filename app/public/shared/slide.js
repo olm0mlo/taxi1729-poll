@@ -256,7 +256,7 @@
         update: function (q, res) {
           chart.innerHTML = "";
           var counts = countsOf(q, res), tot = res ? res.total : 0;
-          if (res && res.seg) return pieSegDraw(q, res.seg, colors);
+          if (res && res.seg) return pieSegDraw(q, res.seg);
           var W = chart.clientWidth, H = chart.clientHeight;
           var svg = s("svg", { "class": "t-svg", width: W, height: H, viewBox: "0 0 " + W + " " + H }); chart.appendChild(svg);
           var r = Math.min(H / 2 - 8, W * 0.26), cx = r + 8, cy = H / 2;
@@ -273,20 +273,48 @@
         }
       };
     }
-    function pieSegDraw(q, seg, colors) {
-      var lg = legend(q.options.map(function (o, i) { return { label: T.optLabel(o, i), color: colors[i] }; }), seg.title ? "Una torta per ogni risposta a: " + seg.title : null);
+    // Torta segmentata: una torta per ogni gruppo della domanda base, tutta nel colore del gruppo
+    // (lo stesso colore usato da barre e dot cluster). Gli spicchi sono sfumature dello stesso colore,
+    // sempre nello stesso ordine (la più chiara è la prima risposta) e con nome e percentuale scritti sopra.
+    function hexRgb(c) { var m = c.replace("#", ""); return [0, 2, 4].map(function (i) { return parseInt(m.substr(i, 2), 16); }); }
+    function mix(a, b, t) { var x = hexRgb(a), y = hexRgb(b); return "rgb(" + x.map(function (v, i) { return Math.round(v + (y[i] - v) * t); }).join(",") + ")"; }
+    function shade(color, i, n) {
+      var t = n > 1 ? i / (n - 1) : 0, amt = 0.38 - 0.93 * t;       // da più chiaro a più scuro
+      return amt >= 0 ? mix(color, "#ffffff", amt) : mix(color, "#02151f", -amt);
+    }
+    function isLight(rgb) { var v = rgb.match(/\d+/g).map(Number); return (0.299 * v[0] + 0.587 * v[1] + 0.114 * v[2]) / 255 > 0.55; }
+    function pieSegDraw(q, seg) {
+      var n = q.options.length;
+      var lg = legend(q.options.map(function (o, i) { return { label: T.optLabel(o, i), color: shade("#b9c6c9", i, n) }; }),
+        (seg.title ? "Una torta per ogni risposta a: " + seg.title + " · " : "") + "sfumatura più chiara = prima risposta");
       chart.appendChild(lg);
       var top = lg.offsetHeight + 12, groups = segItems(seg);
       var W = chart.clientWidth, H = chart.clientHeight - top;
       var svg = s("svg", { "class": "t-svg", width: W, height: H, viewBox: "0 0 " + W + " " + H }); svg.style.top = top + "px"; chart.appendChild(svg);
-      var k = Math.max(1, groups.length), labH = 90;
-      var cellW = W / k, r = Math.max(30, Math.min(cellW / 2 - 18, (H - labH) / 2 - 6));
+      var k = Math.max(1, groups.length), labH = 70;
+      var cellW = W / k, r = Math.max(30, Math.min(cellW / 2 - 26, (H - labH) / 2 - 6));
       groups.forEach(function (g, j) {
-        var cx = cellW * j + cellW / 2, cy = r + 6;
-        drawPie(svg, cx, cy, r, seg.counts[g.si], colors);
-        var fs = Math.max(20, Math.min(30, cellW / 9));
-        var t = s("text", { x: cx, y: cy + r + fs + 14, "font-size": fs, "text-anchor": "middle" }); t.textContent = g.label; svg.appendChild(t);
-        svg.appendChild(s("circle", { cx: cx, cy: cy + r + fs * 2 + 22, r: fs * 0.35, fill: g.color }));
+        var cx = cellW * j + cellW / 2, cy = r + 6, vals = seg.counts[g.si];
+        var colors = q.options.map(function (o, i) { return shade(g.color, i, n); });
+        drawPie(svg, cx, cy, r, vals, colors);
+        // etichette sugli spicchi
+        var sum = vals.reduce(function (a, b) { return a + b; }, 0), a = 0;
+        var fs = Math.max(15, Math.min(24, r * 0.12));
+        vals.forEach(function (v, i) {
+          if (!v || !sum) return;
+          var share = v / sum, a1 = a + share * Math.PI * 2, mid = (a + a1) / 2; a = a1;
+          if (share < 0.06) return;                                   // spicchio troppo piccolo per un'etichetta
+          var rr = share > 0.999 ? 0 : r * 0.62, x = cx + rr * Math.sin(mid), y = cy - rr * Math.cos(mid);
+          var fill = isLight(colors[i]) ? "#02151f" : "#ffffff";
+          var name = T.optLabel(q.options[i], i), maxCh = Math.max(5, Math.floor(r * 0.62 * share * Math.PI * 2 * 1.4 / (fs * 0.55)));
+          var t1 = s("text", { x: x, y: y - fs * 0.15, "font-size": fs, "text-anchor": "middle", style: "fill:" + fill });
+          t1.textContent = name.length > maxCh ? name.slice(0, maxCh - 1) + "…" : name; svg.appendChild(t1);
+          var t2 = s("text", { x: x, y: y + fs * 1.05, "font-size": fs * 1.05, "text-anchor": "middle", "font-weight": 800, style: "fill:" + fill + ";font-family:Inter,sans-serif" });
+          t2.textContent = Math.round(share * 100) + "%"; svg.appendChild(t2);
+        });
+        var gfs = Math.max(20, Math.min(30, cellW / 9));
+        svg.appendChild(s("circle", { cx: cx - (g.label.length * gfs * 0.27) - gfs * 0.6, cy: cy + r + gfs + 6, r: gfs * 0.35, fill: g.color }));
+        var t = s("text", { x: cx, y: cy + r + gfs + 14, "font-size": gfs, "text-anchor": "middle" }); t.textContent = g.label; svg.appendChild(t);
       });
     }
 

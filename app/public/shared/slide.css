@@ -11,8 +11,8 @@
 .t-title { font-weight: 800; font-size: 80px; line-height: 1.08; letter-spacing: -.02em; margin: 22px 0 34px; }
 .t-title.m { font-size: 64px; } .t-title.s { font-size: 52px; }
 .t-chart { flex: 1; min-height: 0; position: relative; }
-.t-right { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 22px; text-align: center; padding-top: 132px; }
-/* il QR parte alla stessa altezza del titolo */
+.t-right { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 22px; text-align: center; padding-top: 14px; }
+/* il QR parte all'altezza della riga con il numero e il nome dell'evento */
 .t-qr { background: #fff; padding: 22px; border-radius: 18px; width: 100%; aspect-ratio: 1; }
 .t-qr img, .t-qr canvas { width: 100% !important; height: auto !important; display: block; }
 .t-join { font-family: "Raleway", sans-serif; font-size: 28px; color: #9fb3b9; line-height: 1.35; }
