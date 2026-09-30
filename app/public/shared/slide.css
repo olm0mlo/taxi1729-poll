@@ -2,7 +2,7 @@
 .t-stage { position: absolute; inset: 0; background: #02151f; overflow: hidden; color: #fff;
   font-family: "Inter", system-ui, sans-serif; }
 .t-canvas { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0;
-  display: grid; grid-template-columns: 1fr 460px; gap: 80px; padding: 56px 96px 96px; }
+  display: grid; grid-template-columns: 1fr 480px; gap: 80px; padding: 56px 96px 76px; }
 .t-left { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .t-kicker { font-family: "Raleway", sans-serif; font-weight: 300; font-size: 44px; color: #e8ea6e; display: flex; align-items: baseline; gap: 12px; min-width: 0; }
 .t-kicker span { text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -17,11 +17,12 @@
 .t-qr img, .t-qr canvas { width: 100% !important; height: auto !important; display: block; }
 .t-join { font-family: "Raleway", sans-serif; font-size: 28px; color: #9fb3b9; line-height: 1.35; }
 .t-join strong { display: block; font-family: "Inter", sans-serif; font-weight: 800; font-size: 60px; color: #fff; letter-spacing: .14em; margin-top: 4px; }
-.t-total { font-size: 30px; color: #9fb3b9; }
+.t-total { font-size: 30px; color: #9fb3b9; margin-top: auto; margin-bottom: 70px; }
+/* il numero di risposte sta in fondo alla colonna, all'altezza della fine del grafico */
 .t-total b { color: #fff; font-weight: 800; }
 .t-logo { position: absolute; right: 96px; bottom: 30px; height: 56px; }
 .t-welcome-text { font-family: "Raleway", sans-serif; font-weight: 300; font-size: 42px; line-height: 1.4; color: #9fb3b9; max-width: 92%; }
-.t-stage.welcome .t-canvas { grid-template-columns: 1fr 620px; }
+.t-stage.welcome .t-canvas { grid-template-columns: 1fr 660px; }
 .t-stage.welcome .t-title { font-size: 104px; }
 .t-notice { position: absolute; left: 96px; right: 96px; bottom: 26px; height: 64px; display: flex; align-items: center; gap: 16px;
   font-size: 26px; color: #fff; }

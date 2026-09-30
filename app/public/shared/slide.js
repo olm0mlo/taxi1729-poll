@@ -174,14 +174,16 @@
       if (seg) { var lg = legend(items, seg.title ? "Colori in base alle risposte a: " + seg.title : "Colori in base alla domanda precedente"); chart.appendChild(lg); top = lg.offsetHeight + 18; }
       var box = h("div", "t-bars"); box.style.top = top + "px"; chart.appendChild(box);
       var n = q.options.length, H = chart.clientHeight - top;
-      var fs = Math.max(22, Math.min(40, H / (n * 2.7)));
-      box.style.gap = Math.round(fs * 0.55) + "px";
+      // dimensioni in base allo spazio: poche risposte = barre più grandi, così il grafico riempie l'altezza
+      var rowH = H / n, fs = Math.max(22, Math.min(58, rowH * 0.3)), trackH = Math.max(14, Math.min(46, fs * 0.75));
+      var content = fs * 1.2 + 6 + trackH, gap = n > 1 ? Math.max(8, Math.min(fs * 1.3, (H - n * content) / (n - 1))) : 0;
+      box.style.gap = Math.round(gap) + "px";
       var rows = q.options.map(function (o, i) {
         var b = h("div", "t-bar");
         var l = h("div", "l", T.optLabel(o, i)); l.style.fontSize = fs + "px";
         var v = h("div", "v"); v.style.fontSize = fs + "px";
         var p = h("span", null, "0%"), c = h("small", null, "0"); v.appendChild(p); v.appendChild(c);
-        var tr = h("div", "tr"); tr.style.height = Math.round(fs * 0.62) + "px"; tr.style.marginTop = "6px";
+        var tr = h("div", "tr"); tr.style.height = Math.round(trackH) + "px"; tr.style.marginTop = "6px";
         var fills = (items || [{ color: PALETTE[i % PALETTE.length], si: -1 }]).map(function (it) {
           var f = h("div", "f"); f.style.background = it.color; f.style.width = "0%"; f._si = it.si; tr.appendChild(f); return f;
         });
@@ -259,9 +261,9 @@
           if (res && res.seg) return pieSegDraw(q, res.seg);
           var W = chart.clientWidth, H = chart.clientHeight;
           var svg = s("svg", { "class": "t-svg", width: W, height: H, viewBox: "0 0 " + W + " " + H }); chart.appendChild(svg);
-          var r = Math.min(H / 2 - 8, W * 0.26), cx = r + 8, cy = H / 2;
+          var r = Math.min(H / 2 - 4, W * 0.3), cx = r + 8, cy = H / 2;
           drawPie(svg, cx, cy, r, counts, colors);
-          var n = counts.length, fs = Math.max(22, Math.min(38, H / (n * 1.7))), lh = fs * 1.55;
+          var n = counts.length, fs = Math.max(22, Math.min(46, H / (n * 1.8))), lh = fs * 1.6;
           var y0 = cy - (n * lh) / 2 + lh / 2, x = cx + r + 70;
           counts.forEach(function (c, i) {
             var y = y0 + i * lh;
@@ -285,36 +287,36 @@
     function isLight(rgb) { var v = rgb.match(/\d+/g).map(Number); return (0.299 * v[0] + 0.587 * v[1] + 0.114 * v[2]) / 255 > 0.55; }
     function pieSegDraw(q, seg) {
       var n = q.options.length;
-      var lg = legend(q.options.map(function (o, i) { return { label: T.optLabel(o, i), color: shade("#b9c6c9", i, n) }; }),
-        (seg.title ? "Una torta per ogni risposta a: " + seg.title + " · " : "") + "sfumatura più chiara = prima risposta");
-      chart.appendChild(lg);
-      var top = lg.offsetHeight + 12, groups = segItems(seg);
+      if (seg.title) { var cap = legend([], "Una torta per ogni risposta a: " + seg.title); cap.style.marginBottom = "6px"; chart.appendChild(cap); }
+      var top = seg.title ? chart.lastChild.offsetHeight + 6 : 0, groups = segItems(seg);
       var W = chart.clientWidth, H = chart.clientHeight - top;
       var svg = s("svg", { "class": "t-svg", width: W, height: H, viewBox: "0 0 " + W + " " + H }); svg.style.top = top + "px"; chart.appendChild(svg);
-      var k = Math.max(1, groups.length), labH = 70;
-      var cellW = W / k, r = Math.max(30, Math.min(cellW / 2 - 26, (H - labH) / 2 - 6));
+      var k = Math.max(1, groups.length), cellW = W / k;
+      var fs = Math.max(18, Math.min(30, cellW / 11, H / ((n + 1.6) * 1.45 + 6)));   // testo dell'elenco
+      var lh = fs * 1.45, listH = lh * n + fs * 1.9;
+      var r = Math.max(40, Math.min(cellW / 2 - 24, (H - listH - 18) / 2));
+      var inner = Math.min(cellW - 36, Math.max(2 * r, fs * 14));
       groups.forEach(function (g, j) {
-        var cx = cellW * j + cellW / 2, cy = r + 6, vals = seg.counts[g.si];
+        var cx = cellW * j + cellW / 2, cy = r + 4, vals = seg.counts[g.si];
         var colors = q.options.map(function (o, i) { return shade(g.color, i, n); });
+        var sum = vals.reduce(function (a, b) { return a + b; }, 0);
         drawPie(svg, cx, cy, r, vals, colors);
-        // etichette sugli spicchi
-        var sum = vals.reduce(function (a, b) { return a + b; }, 0), a = 0;
-        var fs = Math.max(15, Math.min(24, r * 0.12));
-        vals.forEach(function (v, i) {
-          if (!v || !sum) return;
-          var share = v / sum, a1 = a + share * Math.PI * 2, mid = (a + a1) / 2; a = a1;
-          if (share < 0.06) return;                                   // spicchio troppo piccolo per un'etichetta
-          var rr = share > 0.999 ? 0 : r * 0.62, x = cx + rr * Math.sin(mid), y = cy - rr * Math.cos(mid);
-          var fill = isLight(colors[i]) ? "#02151f" : "#ffffff";
-          var name = T.optLabel(q.options[i], i), maxCh = Math.max(5, Math.floor(r * 0.62 * share * Math.PI * 2 * 1.4 / (fs * 0.55)));
-          var t1 = s("text", { x: x, y: y - fs * 0.15, "font-size": fs, "text-anchor": "middle", style: "fill:" + fill });
-          t1.textContent = name.length > maxCh ? name.slice(0, maxCh - 1) + "…" : name; svg.appendChild(t1);
-          var t2 = s("text", { x: x, y: y + fs * 1.05, "font-size": fs * 1.05, "text-anchor": "middle", "font-weight": 800, style: "fill:" + fill + ";font-family:Inter,sans-serif" });
-          t2.textContent = Math.round(share * 100) + "%"; svg.appendChild(t2);
+        // nome del gruppo sotto la torta
+        var y = cy + r + fs * 1.45;
+        var gl = s("text", { x: cx + fs * 0.45, y: y, "font-size": fs * 1.05, "text-anchor": "middle", "font-weight": 600 });
+        gl.textContent = g.label; svg.appendChild(gl);
+        var glW = g.label.length * fs * 1.05 * 0.52;
+        svg.appendChild(s("circle", { cx: cx - glW / 2 - fs * 0.3, cy: y - fs * 0.36, r: fs * 0.36, fill: g.color }));
+        // elenco delle risposte, sempre nello stesso ordine
+        var x0 = cx - inner / 2, x1 = cx + inner / 2, maxCh = Math.max(6, Math.floor((inner - fs * 4.2) / (fs * 0.5)));
+        q.options.forEach(function (o, i) {
+          var yy = y + fs * 0.55 + lh * (i + 1);
+          svg.appendChild(s("rect", { x: x0, y: yy - fs * 0.78, width: fs * 0.8, height: fs * 0.8, rx: fs * 0.18, fill: colors[i] }));
+          var name = T.optLabel(o, i), t = s("text", { x: x0 + fs * 1.25, y: yy, "font-size": fs });
+          t.textContent = name.length > maxCh ? name.slice(0, maxCh - 1) + "…" : name; svg.appendChild(t);
+          var p = s("text", { x: x1, y: yy, "font-size": fs, "text-anchor": "end", "font-weight": 800, style: "fill:#e8ea6e;font-family:Inter,sans-serif" });
+          p.textContent = (sum ? Math.round(vals[i] / sum * 100) : 0) + "%"; svg.appendChild(p);
         });
-        var gfs = Math.max(20, Math.min(30, cellW / 9));
-        svg.appendChild(s("circle", { cx: cx - (g.label.length * gfs * 0.27) - gfs * 0.6, cy: cy + r + gfs + 6, r: gfs * 0.35, fill: g.color }));
-        var t = s("text", { x: cx, y: cy + r + gfs + 14, "font-size": gfs, "text-anchor": "middle" }); t.textContent = g.label; svg.appendChild(t);
       });
     }
 
