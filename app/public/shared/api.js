@@ -55,7 +55,10 @@
       clearTimeout(retryTimer); retryTimer = null;
       var me;
       try { me = ws = new WebSocket(url()); } catch (e) { schedule(); return; }
+      // un tentativo che resta sospeso (né riuscito né fallito) viene abbandonato dopo 10 s
+      var connT = setTimeout(function () { if (me === ws && me.readyState !== 1) drop(); }, 10000);
       me.onopen = function () {
+        clearTimeout(connT);
         if (me !== ws) return;
         retry = 0; onStatus && onStatus(true);
         var q = queue; queue = []; q.forEach(function (m) { me.send(m); });
@@ -86,7 +89,9 @@
     function schedule() {
       if (closed || retryTimer) return;
       retry++;
-      retryTimer = setTimeout(open, Math.min(8000, 500 * Math.pow(1.6, retry)) + Math.random() * 600);
+      // al primo tentativo l'attesa casuale è più ampia (0,8-3,3 s): se cadono tutti insieme (es. riavvio del server)
+      // i rientri si distribuiscono invece di arrivare nello stesso istante
+      retryTimer = setTimeout(open, Math.min(8000, 500 * Math.pow(1.6, retry)) + Math.random() * (retry === 1 ? 2500 : 600));
     }
     function wake() {
       if (closed) return;

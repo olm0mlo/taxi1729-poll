@@ -26,6 +26,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const now = () => performance.now();
 const rnd = (a, b) => a + Math.random() * (b - a);
 const results = [];          // righe del riepilogo
+const reasons = {};          // motivi dei tentativi di collegamento falliti
 let failures = 0;
 function check(name, ok, detail = "") {
   results.push({ name, ok, detail });
@@ -67,7 +68,11 @@ class Phone {
       let done = false;
       const ws = new WebSocket(`${WS_BASE}/ws?role=audience&code=${this.code}&voter=${this.voter}`);
       this.ws = ws;
-      const fin = (ok) => { if (!done) { done = true; resolve(ok ? now() - t0 : null); } };
+      const fin = (ok, why) => {
+        if (done) return; done = true;
+        if (!ok) { reasons[why] = (reasons[why] || 0) + 1; try { ws.close(); } catch {} }
+        resolve(ok ? now() - t0 : null);
+      };
       ws.onopen = () => { this.open = true; this.connects++; };
       ws.onmessage = (e) => {
         let m; try { m = JSON.parse(e.data); } catch { return; }
@@ -79,10 +84,21 @@ class Phone {
         } else if (m.t === "voted") { this.voted[m.q] = true; this.acks[m.q] = (this.acks[m.q] || 0) + 1; if (m.already) this.already = (this.already || 0) + 1; if (this._voteT0) { this.voteLat = now() - this._voteT0; this._voteT0 = null; } }
         else if (m.t === "error") this.errors++;
       };
-      ws.onclose = () => { this.open = false; fin(false); };
-      ws.onerror = () => {};
-      setTimeout(() => fin(false), 15000);
+      ws.onclose = (e) => { this.open = false; fin(false, this.connects && ws.readyState !== 0 ? `chiusa dal server (codice ${e.code})` : `rifiutata (codice ${e.code})`); };
+      ws.onerror = (e) => { if (!this.open) fin(false, "errore: " + ((e && e.message) || "connessione non riuscita")); };
+      setTimeout(() => fin(false, "nessuna risposta entro 10 s"), 10000);
     });
+  }
+  // come la pagina vera: se il tentativo fallisce riprova (attesa 0,8-3,3 s, poi sempre più lunga, max 8 s)
+  async connectRetry(maxMs = 60000) {
+    const t0 = now(); let attempt = 0;
+    while (now() - t0 < maxMs) {
+      if (attempt) await sleep(Math.min(8000, 500 * Math.pow(1.6, attempt)) + Math.random() * (attempt === 1 ? 2500 : 600));
+      attempt++;
+      const t = await this.connect();
+      if (t !== null) { this.attempts = attempt; return now() - t0; }
+    }
+    this.attempts = attempt; return null;
   }
   send(o) { if (this.ws && this.ws.readyState === 1) { this.ws.send(JSON.stringify(o)); return true; } return false; }
   vote(q, payload) { this._voteT0 = now(); return this.send({ t: "vote", q, ...payload }); }
@@ -139,7 +155,7 @@ async function main() {
     const tRamp = now();
     await Promise.all(phones.map(async (p, i) => {
       await sleep((i / USERS) * RAMP * 1000);
-      const t = await p.connect();
+      const t = await p.connectRetry();
       if (t !== null) connT.push(t);
     }));
     const withQ = phones.filter((p) => p.state && p.state.q && p.state.q.id === q1.id).length;
@@ -161,7 +177,7 @@ async function main() {
     drop.forEach((p) => p.drop());
     await sleep(300);
     const reconT = [];
-    await Promise.all(drop.map(async (p) => { await sleep(rnd(200, 3000)); const t = await p.connect(); if (t !== null) reconT.push(t); }));
+    await Promise.all(drop.map(async (p) => { await sleep(rnd(200, 3000)); const t = await p.connectRetry(); if (t !== null) reconT.push(t); }));
     const kept = drop.filter((p) => p.state && p.state.voted).length;
     check(`Caduta di rete di ${drop.length} telefoni: si ricollegano e ritrovano "risposta inviata"`, reconT.length === drop.length && kept === drop.length,
       `${reconT.length} ricollegati (${stats(reconT)}), ${kept} riconosciuti come già votanti`);
@@ -186,11 +202,13 @@ async function main() {
     phones.forEach((p) => p.drop());
     await sleep(500);
     const tAll = now(); const allT = [];
-    // i telefoni veri riprovano dopo 0,8-1,4 s circa (attesa casuale per non arrivare tutti nello stesso istante)
-    await Promise.all(phones.map(async (p) => { await sleep(rnd(800, 1400)); const t = await p.connect(); if (t !== null) allT.push(t); }));
+    // i telefoni veri riprovano dopo 0,8-3,3 s (attesa casuale per non arrivare tutti nello stesso istante)
+    await Promise.all(phones.map(async (p) => { await sleep(rnd(800, 3300)); const t = await p.connectRetry(); if (t !== null) allT.push(t); }));
     const back = phones.filter((p) => p.state && p.state.q && p.state.q.id === q2.id && p.state.voted).length;
+    const retried = phones.filter((p) => p.attempts > 1).length;
     check("Riconnessione di massa: tutti tornano con il loro stato", allT.length === USERS && back === USERS,
-      `${allT.length} ricollegati in ${ms(now() - tAll)}; ${back} ritrovano la domanda come già votata; collegamento: ${stats(allT)}`);
+      `${allT.length} ricollegati, ultimo dopo ${ms(now() - tAll)}; ${back} ritrovano la domanda come già votata; ` +
+      `${retried} hanno avuto bisogno di più tentativi; tempo per rientrare: ${stats(allT)}`);
 
     // ---------------------------------------------------------------- 6. voto spedito mentre la connessione cade
     const q3 = (await api(`events/${ev.id}/questions`, { data: { title: "Test di carico: voto durante la caduta", options: ["Sì", "No"] } })).question;
@@ -199,7 +217,7 @@ async function main() {
     const flaky = phones.slice(0, Math.round(USERS * 0.1));
     flaky.forEach((p) => { p.vote(q3.id, { choices: [1] }); p.drop(); });   // voto e caduta nello stesso istante
     await sleep(200);
-    await Promise.all(flaky.map(async (p) => { await sleep(rnd(300, 1500)); await p.connect(); }));
+    await Promise.all(flaky.map(async (p) => { await sleep(rnd(300, 1500)); await p.connectRetry(); }));
     // come fa la pagina del pubblico: se al ritorno il voto non risulta, lo rispedisce
     const resent = flaky.filter((p) => !(p.state && p.state.voted));
     resent.forEach((p) => p.vote(q3.id, { choices: [1] }));
@@ -225,6 +243,10 @@ async function main() {
     const bk = phones.map((p) => p.backAt).filter((x) => x != null);
     check("Al ritorno della presentazione la domanda riappare a tutti", bk.length === USERS, `${bk.length}/${USERS}; ritardo: ${stats(bk)}`);
 
+    const nFail = Object.values(reasons).reduce((a, b) => a + b, 0);
+    const totTries = phones.reduce((a, p) => a + p.connects, 0) + nFail;
+    check("Tentativi di collegamento falliti (poi ripetuti) sotto l'1%", nFail <= totTries * 0.01,
+      nFail ? `${nFail} su ${totTries}: ` + Object.entries(reasons).map(([k, v]) => `${v} × ${k}`).join(", ") : `0 su ${totTries}`);
     const errs = phones.reduce((a, p) => a + p.errors, 0);
     check("Nessun errore segnalato dal server ai telefoni", errs === 0, errs ? `${errs} errori` : "");
     phones.forEach((p) => p.drop());

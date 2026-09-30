@@ -536,6 +536,7 @@ export class Hub {
         const name = b.name !== undefined ? (str(b.name, 150) || ev.name) : ev.name;
         const code = b.code !== undefined && String(b.code).toUpperCase() !== ev.code ? await this.pickCode(b.code) : ev.code;
         this.run("UPDATE events SET name = ?, code = ?, updated = ? WHERE id = ?", name, code, Date.now(), ev.id);
+        this.evByCode = null;
         return json({ event: this.pubEvent(this.getEvent(ev.id)) });
       }
       if (!p[2] && m === "DELETE") {
@@ -544,6 +545,7 @@ export class Hub {
         this.run("DELETE FROM questions WHERE event_id = ?", ev.id);
         this.live.delete(ev.id); this.saveLive(ev.id);
         this.run("DELETE FROM events WHERE id = ?", ev.id);
+        this.evByCode = null;
         return json({ ok: true });
       }
       if (p[2] === "questions" && m === "POST") {
@@ -695,7 +697,11 @@ export class Hub {
     const role = url.searchParams.get("role");
     let att, tag;
     if (role === "audience") {
-      const e = this.get("SELECT * FROM events WHERE code = ?", String(url.searchParams.get("code") || "").toUpperCase());
+      // evento cercato in memoria: con 1000 telefoni che si ricollegano insieme ogni lavoro risparmiato conta
+      const code = String(url.searchParams.get("code") || "").toUpperCase();
+      if (!this.evByCode) this.evByCode = new Map();
+      let e = this.evByCode.get(code);
+      if (!e) { e = this.get("SELECT * FROM events WHERE code = ?", code); if (e) this.evByCode.set(code, e); }
       if (!e) return json({ error: "Codice evento non trovato" }, 404);
       const voter = String(url.searchParams.get("voter") || "");
       if (!/^[a-z0-9]{6,40}$/i.test(voter)) return json({ error: "Identificativo non valido" }, 400);
@@ -713,7 +719,7 @@ export class Hub {
     this.ctx.acceptWebSocket(server, [tag]);
     server.serializeAttachment(att);
     if (role === "audience") {
-      const ev = this.getEvent(att.eventId);
+      const ev = this.evByCode.get(String(url.searchParams.get("code") || "").toUpperCase()) || this.getEvent(att.eventId);
       server.send(JSON.stringify({ t: "hello", event: { name: ev.name, code: ev.code } }));
       server.send(JSON.stringify(this.audienceState(att.eventId, att.voter)));
     } else {
