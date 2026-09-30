@@ -113,6 +113,10 @@
       var tot = res ? res.total : 0;
       tween(totalNum, tot, fmtInt);
       totalLab.textContent = tot === 1 ? " risposta" : " risposte";
+      // il grafico parte sempre sotto il QR e il suo codice (in alto a destra)
+      chart.style.marginTop = "0px";
+      var minTop = 380, t0 = chart.offsetTop;
+      if (t0 && t0 < minTop) chart.style.marginTop = (minTop - t0) + "px";
       drawChart(q, res);
     }
 
@@ -174,10 +178,10 @@
     function barsView(q, seg) {
       var top = 0, items = seg ? segItems(seg) : null;
       if (seg) { var lg = legend(items); chart.appendChild(lg); top = lg.offsetHeight + 18; }
-      var box = h("div", "t-bars"); box.style.top = top + "px"; chart.appendChild(box);
+      var box = h("div", "t-bars"); box.style.top = top + "px"; box.style.bottom = "0px"; chart.appendChild(box);
       var n = q.options.length, H = chart.clientHeight - top;
       // barre sottili: dimensioni fisse finché c'è spazio, più piccole solo con molte risposte
-      var fs = 32, trackH = 15, gap = 34, pad = 30;
+      var fs = 32, trackH = 15, gap = 34, pad = 0;
       var need = function () { return pad + n * (fs * 1.2 + 14 + trackH) + (n - 1) * gap; };
       while (need() > H && fs > 20) { fs -= 1; gap = Math.max(12, gap - 1.5); trackH = Math.max(10, trackH - 0.3); pad = Math.max(0, pad - 2); }
       box.style.gap = Math.round(gap) + "px"; box.style.paddingTop = pad + "px";
@@ -302,7 +306,8 @@
       var labW = Math.min(460, W * 0.26), k = Math.max(1, groups.length), colW = (W - labW) / k;
       var lh = Math.max(34, Math.min(58, (H - 300) / n)), fs = Math.round(lh * 0.55), groupH = fs * 2.1;
       var r = Math.max(50, Math.min(colW / 2 - 40, 150, (H - n * lh - groupH - 30) / 2));
-      var cy = r + 6, gy = cy + r + fs * 1.6, rowY0 = gy + fs * 1.9;
+      var blockH = 2 * r + fs * 3.5 + (n - 1) * lh + lh * 0.4, offY = Math.max(0, (H - blockH) / 2);
+      var cy = offY + r + 6, gy = cy + r + fs * 1.6, rowY0 = gy + fs * 1.9;
       var maxCh = Math.floor((labW - 20) / (fs * 0.5));
       q.options.forEach(function (o, i) {
         var y = rowY0 + i * lh, name = T.optLabel(o, i);
@@ -333,17 +338,18 @@
       var W = chart.clientWidth, H = chart.clientHeight - top, n = q.options.length;
       var svg = s("svg", { "class": "t-svg", width: W, height: H, viewBox: "0 0 " + W + " " + H }); svg.style.top = top + "px"; chart.appendChild(svg);
       // colonne ben separate, larghe uguali; pallini in righe regolari
-      var colGap = n > 1 ? Math.min(90, W * 0.06) : 0, colW = (W - colGap * (n - 1)) / n, labH = 100, areaH = H - labH;
+      var colGap = n > 1 ? Math.min(90, W * 0.06) : 0, colW = (W - colGap * (n - 1)) / n, labH = 100, areaH = Math.min(H - labH, 460);
+      var root = s("g", { transform: "translate(0," + Math.max(0, (H - labH - areaH) / 2) + ")" }); svg.appendChild(root);
       var colX = function (i) { return i * (colW + colGap); };
-      var gDots = s("g", {}); svg.appendChild(gDots);
+      var gDots = s("g", {}); root.appendChild(gDots);
       var cols = q.options.map(function (o, i) {
-        svg.appendChild(s("line", { x1: colX(i), x2: colX(i) + colW, y1: areaH + 8, y2: areaH + 8, stroke: "rgba(255,255,255,.18)", "stroke-width": 2 }));
+        root.appendChild(s("line", { x1: colX(i), x2: colX(i) + colW, y1: areaH + 8, y2: areaH + 8, stroke: "rgba(255,255,255,.18)", "stroke-width": 2 }));
         var fs = Math.max(18, Math.min(30, colW / 8));
         var lab = s("text", { x: colX(i) + colW / 2, y: areaH + fs + 18, "font-size": fs, "text-anchor": "middle" });
         var txt = T.optLabel(o, i), maxCh = Math.floor(colW / (fs * 0.52));
-        lab.textContent = txt.length > maxCh ? txt.slice(0, maxCh - 1) + "…" : txt; svg.appendChild(lab);
+        lab.textContent = txt.length > maxCh ? txt.slice(0, maxCh - 1) + "…" : txt; root.appendChild(lab);
         var pv = s("text", { x: colX(i) + colW / 2, y: areaH + fs * 2 + 30, "font-size": fs, "text-anchor": "middle", "font-weight": 800, style: "fill:#fff;font-family:Inter,sans-serif" });
-        pv.textContent = "0%"; svg.appendChild(pv);
+        pv.textContent = "0%"; root.appendChild(pv);
         return { pv: pv, dots: [] };
       });
       var lay = null;
