@@ -24,7 +24,7 @@
 </head>
 <body class="ui">
 <div id="slide"></div>
-<div class="ctrl hidden" id="ctrl">
+<div class="ctrl hidden" id="ctrl" title="Tasti: frecce per cambiare slide · R mostra le risposte · G cambia grafico · S simula voti · F schermo intero">
   <button class="btn ghost small" id="prev" title="Indietro (←)">←</button>
   <span class="pos" id="pos">–</span>
   <button class="btn ghost small" id="next" title="Avanti (→)">→</button>
@@ -41,6 +41,7 @@
   var eventId = new URLSearchParams(location.search).get("event");
   var over = document.getElementById("over"), esc = T.esc;
   var slide = T.Slide(document.getElementById("slide"));
+  var chartOver = {};   // grafico scelto con il tasto G, per domanda
   var ev = null, questions = [], idx = 0, conn = null, beat = null, live = { q: null, revealed: false }, force = false, results = {};
   T.loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js", function () { slide.redrawQr(); });
 
@@ -68,6 +69,7 @@
     document.getElementById("pos").textContent = (idx === 0 ? "Benvenuto" : idx + " / " + questions.length);
     if (!q) slide.setWelcome("Partecipa dal tuo smartphone");
     else {
+      slide.setChartOverride(chartOver[q.id] || null);
       slide.setQuestion(Object.assign({ id: q.id }, q.data), idx);
       slide.setRevealed(live.q === q.id ? live.revealed : false);
       if (results[q.id]) slide.setResults(results[q.id]);
@@ -120,6 +122,14 @@
       T.api("questions/" + current().id + "/simulate", { body: { count: 100, seconds: 20 } }).catch(function (er) { alert(er.message); });
     }
     else if (e.key === "Home") go(0);
+    else if ((e.key === "g" || e.key === "G") && current()) {
+      // cambia il tipo di grafico della domanda corrente: barre → torta → dot cluster
+      var q = current(), order = ["bar", "pie", "dots"];
+      var now = chartOver[q.id] || q.data.chart || "bar";
+      var next = order[(order.indexOf(now) + 1) % order.length];
+      chartOver[q.id] = next === (q.data.chart || "bar") ? null : next;
+      slide.setChartOverride(chartOver[q.id]); slide.playIntro();
+    }
   });
   var idleT; function wake() { var c = document.getElementById("ctrl"); c.classList.remove("idle"); clearTimeout(idleT); idleT = setTimeout(function () { c.classList.add("idle"); }, 2500); }
   document.addEventListener("mousemove", wake); wake();

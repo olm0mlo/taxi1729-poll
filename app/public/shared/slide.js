@@ -66,7 +66,7 @@
     var logo = h("img", "t-logo"); logo.src = "/assets/logo-negativo.png"; logo.alt = "Taxi1729"; canvas.appendChild(logo);
     var notice = h("div", "t-notice hidden"); canvas.appendChild(notice);
 
-    var st = { mode: "question", code: null, q: null, number: 1, res: null, revealed: false, welcomeTitle: "" };
+    var st = { mode: "question", code: null, eventName: "", q: null, number: 1, res: null, revealed: false, welcomeTitle: "", chartOverride: null, armed: false };
     var view = null;             // grafico attualmente disegnato
     var pendingIntro = 0;        // animazione di comparsa richiesta prima che arrivassero i risultati
 
@@ -101,7 +101,7 @@
       chart.classList.toggle("hidden", welcome);
       total.classList.toggle("hidden", welcome);
       kNum.textContent = welcome ? "00" : String(st.number).padStart(2, "0");
-      kTxt.textContent = welcome ? "BENVENUTI" : "SONDAGGIO";
+      kTxt.textContent = welcome ? "BENVENUTI" : (st.eventName || "SONDAGGIO");
       if (welcome) { title.className = "t-title"; title.textContent = st.welcomeTitle || "Partecipa dal tuo smartphone"; chart.innerHTML = ""; view = null; return; }
       var q = st.q || { title: "", options: [] };
       var tt = q.title || "";
@@ -120,7 +120,8 @@
       if (!n) { chart.innerHTML = ""; view = null; return; }
       var hidden = q.reveal === "click" && !st.revealed;
       var seg = !hidden && res && res.seg ? res.seg : null;
-      var type = hidden ? "hidden" : (q.chart === "pie" ? "pie" : q.chart === "dots" ? "dots" : "bars");
+      var ch = st.chartOverride || q.chart;
+      var type = hidden ? "hidden" : (ch === "pie" ? "pie" : ch === "dots" ? "dots" : "bars");
       var key = [type, q.id, n, q.options.join("\u0001"), seg ? segItems(seg).map(function (x) { return x.si; }).join(",") + "|" + (seg.title || "") : "",
         chart.clientWidth, chart.clientHeight].join("|");
       if (!view || view.key !== key) {
@@ -129,6 +130,7 @@
         view.key = key;
       }
       view.update(q, res);
+      if (st.armed && view.arm) view.arm();
       if (pendingIntro && res && Date.now() - pendingIntro < 2500) { pendingIntro = 0; view.intro && view.intro(q, res); }
     }
 
@@ -203,6 +205,15 @@
             tween(r.p, pct(counts[i], tot), fmtPct);
             tween(r.c, counts[i], fmtInt);
           });
+        },
+        // Grafico "in attesa": barre a zero, pronte per l'animazione alla prossima comparsa della slide.
+        arm: function () {
+          rows.forEach(function (r) {
+            r.fills.forEach(function (f) { f.style.transition = "none"; f.style.width = "0%"; });
+            tween(r.p, 0, fmtPct); tween(r.c, 0, fmtInt);
+          });
+          void box.offsetWidth;
+          rows.forEach(function (r) { r.fills.forEach(function (f) { f.style.transition = ""; }); });
         },
         // Le barre ripartono da zero e crescono una dopo l'altra (tutto in meno di un secondo).
         intro: function (q, res) {
@@ -340,6 +351,9 @@
             tween(col.pv, pct(c, tot), fmtPct);
           });
         },
+        arm: function () {
+          gDots.innerHTML = ""; cols.forEach(function (c) { c.dots = []; tween(c.pv, 0, fmtPct); });
+        },
         // Tutti i pallini ricompaiono uno dopo l'altro, dal basso, riempiendo le colonne insieme.
         intro: function (q, res) {
           var counts = countsOf(q, res), tot = res ? res.total : 0, totalDots = counts.reduce(function (a, b) { return a + b; }, 0);
@@ -361,7 +375,21 @@
     }
 
     var api = {
-      setEvent: function (ev) { if (!ev) return; if (ev.code !== st.code) { st.code = ev.code; drawQr(); } },
+      setEvent: function (ev) {
+        if (!ev) return;
+        if (ev.code !== st.code) { st.code = ev.code; drawQr(); }
+        if ((ev.name || "") !== st.eventName) { st.eventName = ev.name || ""; render(); }
+      },
+      // Grafico diverso da quello della domanda solo per questa slide (null = come la domanda)
+      setChartOverride: function (type) {
+        type = type || null;
+        if (type !== st.chartOverride) { st.chartOverride = type; view = null; chart.innerHTML = ""; render(); }
+      },
+      // Azzera il grafico mentre la slide non si vede: alla ricomparsa l'animazione parte da vuoto.
+      arm: function () {
+        if (st.mode !== "question" || !st.q) return;
+        st.armed = true; if (view && view.arm) view.arm();
+      },
       setWelcome: function (t) { st.mode = "welcome"; st.welcomeTitle = t; render(); },
       setQuestion: function (q, number) {
         if (!st.q || !q || st.q.id !== q.id) { view = null; chart.innerHTML = ""; totalNum._v = null; }
@@ -377,7 +405,9 @@
       playIntro: function () {
         if (st.mode !== "question" || !st.q) return;
         if (st.q.reveal === "click" && !st.revealed) return;
+        st.armed = false;
         if (view && view.intro && currentRes()) view.intro(st.q, currentRes());
+        else if (view && !view.intro) render();
         else pendingIntro = Date.now();
       },
       setNotice: function (text) {

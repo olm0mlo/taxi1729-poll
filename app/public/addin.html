@@ -51,7 +51,7 @@
 (function () {
   var esc = T.esc;
   var $ = function (id) { return document.getElementById(id); };
-  var HEARTBEAT_MS = 2000, POLL_SLIDE_MS = 700;
+  var HEARTBEAT_MS = 2000, POLL_SLIDE_MS = 500;
 
   // Impostazioni salvate dentro la slide (riquadro dell'add-in)
   var S = {
@@ -60,6 +60,7 @@
     questionId: null, snapshot: null, number: 1,
     welcomeTitle: "Partecipa dal tuo smartphone",
     results: "hidden",              // domande con risultati "su click": in questa slide nascosti o visibili
+    chart: "",                      // grafico di questa slide ("" = quello della domanda)
     slideId: null, slideIndex: null, fitted: false, debug: false
   };
   var KEYS = Object.keys(S);
@@ -152,6 +153,7 @@
     active = on;
     log((on ? "▶ ATTIVA" : "■ NON ATTIVA") + " — " + why);
     clearInterval(beatTimer);
+    if (!on && view === "read") slide.arm();   // la prossima volta il grafico ripartirà da vuoto
     if (on) { announce(); beatTimer = setInterval(announce, HEARTBEAT_MS); slide.playIntro(); }
     else if (conn && S.kind === "question" && S.questionId) conn.send({ t: "hide", q: S.questionId, k: slideKey() });
     drawSlideCtl();
@@ -193,7 +195,8 @@
 
   // ------------------------------------------------------------------ disegno della slide
   function renderSlide() {
-    slide.setEvent(S.eventCode ? { code: S.eventCode } : null);
+    slide.setEvent(S.eventCode ? { code: S.eventCode, name: S.eventName } : null);
+    slide.setChartOverride(S.chart || null);
     if (S.kind === "welcome") slide.setWelcome(S.welcomeTitle);
     else if (S.snapshot) {
       slide.setQuestion(Object.assign({ id: S.questionId }, S.snapshot), S.number);
@@ -303,6 +306,15 @@
         html += '<label class="lbl">Domanda mostrata in questa slide</label><div class="inline"><select id="selQ">' + qOpts + '</select></div>' +
           '<div class="qe-actions" style="margin-top:10px"><button class="btn small" id="bNewQ">+ Nuova domanda</button>' +
           (S.questionId && !missing ? '<button class="btn ghost small" id="bEditQ">Modifica questa domanda</button>' : '') + '</div>';
+        if (S.snapshot && !missing) {
+          var qc = { bar: "Barre", pie: "Torta", dots: "Dot cluster" }[S.snapshot.chart] || "Barre";
+          html += '<label class="lbl">Grafico in questa slide</label><div class="seg">' +
+            '<label><input type="radio" name="sch" value=""' + (!S.chart ? " checked" : "") + '>Come la domanda (' + qc + ')</label>' +
+            ['bar', 'pie', 'dots'].filter(function (c) { return c !== (S.snapshot.chart || "bar"); }).map(function (c) {
+              return '<label><input type="radio" name="sch" value="' + c + '"' + (S.chart === c ? " checked" : "") + '>' + { bar: "Barre", pie: "Torta", dots: "Dot cluster" }[c] + '</label>';
+            }).join("") + '</div>' +
+            '<div class="hint">Per mostrare gli stessi risultati in più modi, duplica la slide e scegli un grafico diverso in ogni copia.</div>';
+        }
         if (S.snapshot && S.snapshot.reveal === "click" && !missing) {
           html += '<label class="lbl">Risultati in questa slide</label><div class="seg">' +
             '<label><input type="radio" name="res" value="hidden"' + (S.results !== "shown" ? " checked" : "") + '>Nascosti (si vota)</label>' +
@@ -345,7 +357,7 @@
       r.onchange = function () { S.kind = r.value; saveSettings(); drawEditor(); };
     });
     if ($("selQ")) $("selQ").onchange = function () {
-      S.questionId = this.value || null; missing = false; copyNotice = false; S.results = "hidden";
+      S.questionId = this.value || null; missing = false; copyNotice = false; S.results = "hidden"; S.chart = "";
       var q = questions.find(function (x) { return x.id === S.questionId; });
       S.snapshot = q ? q.data : null; S.number = q ? q.pos : 1; lastResults = null;
       saveSettings(); drawEditor();
@@ -360,6 +372,9 @@
     };
     if ($("bKeep")) $("bKeep").onclick = function () { copyNotice = false; drawEditor(); };
     if ($("bResSlide")) $("bResSlide").onclick = function () { S.results = "shown"; copyNotice = false; saveSettings(); drawEditor(); };
+    Array.prototype.forEach.call(document.querySelectorAll('input[name="sch"]'), function (r) {
+      r.onchange = function () { S.chart = r.value; saveSettings(); drawMini(); };
+    });
     Array.prototype.forEach.call(document.querySelectorAll('input[name="res"]'), function (r) {
       r.onchange = function () { S.results = r.value; saveSettings(); drawMini(); };
     });
@@ -373,7 +388,8 @@
   function drawMini() {
     var box = $("mini"); if (!box) return;
     mini = T.Slide(box);
-    mini.setEvent(S.eventCode ? { code: S.eventCode } : null);
+    mini.setEvent(S.eventCode ? { code: S.eventCode, name: S.eventName } : null);
+    mini.setChartOverride(S.chart || null);
     if (S.kind === "welcome") mini.setWelcome(S.welcomeTitle);
     else if (S.snapshot) { mini.setQuestion(Object.assign({ id: S.questionId }, S.snapshot), S.number); mini.setRevealed(isRevealed()); }
     else mini.setWelcome(S.eventId ? "Scegli o crea una domanda" : "Scegli un evento");
@@ -470,7 +486,12 @@
   function onView(v, initial) {
     view = v; log((initial ? "vista iniziale: " : "cambio vista: ") + v + (initial ? " (dopo " + (Date.now() - T0) + " ms)" : ""));
     renderMode(); ensureConn(); tick();
-    if (v === "read") { nudgeRepaint(); refreshQuestion(); }
+    if (v === "read") {
+      slide.arm(); nudgeRepaint(); refreshQuestion();
+      if (S.eventId && T.token()) T.api("events/" + S.eventId).then(function (d) {
+        if (d.event.name !== S.eventName || d.event.code !== S.eventCode) { S.eventName = d.event.name; S.eventCode = d.event.code; renderSlide(); }
+      }, function () {});
+    }
     else if (me) loadQuestions().then(drawEditor, function () {});
   }
   function boot(inOffice) {
