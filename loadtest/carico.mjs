@@ -27,6 +27,8 @@ const now = () => performance.now();
 const rnd = (a, b) => a + Math.random() * (b - a);
 const results = [];          // righe del riepilogo
 const reasons = {};          // motivi dei tentativi di collegamento falliti
+const cuts = [];             // connessioni chiuse dal server senza che il test lo chiedesse (istante in ms)
+const clock = () => new Date().toISOString().slice(11, 19);
 let failures = 0;
 function check(name, ok, detail = "") {
   results.push({ name, ok, detail });
@@ -67,7 +69,7 @@ class Phone {
       const t0 = now();
       let done = false;
       const ws = new WebSocket(`${WS_BASE}/ws?role=audience&code=${this.code}&voter=${this.voter}`);
-      this.ws = ws;
+      this.ws = ws; this.deliberate = false; this.ready = false;
       const fin = (ok, why) => {
         if (done) return; done = true;
         if (!ok) { reasons[why] = (reasons[why] || 0) + 1; try { ws.close(); } catch {} }
@@ -79,12 +81,22 @@ class Phone {
         if (m.t === "state") {
           this.state = m; this.stateAt = now();
           if (m.q && m.voted) this.voted[m.q.id] = true;
+          // come la pagina vera: un voto non confermato si rispedisce quando la domanda è ancora aperta
+          if (this.pending && m.q && m.q.id === this.pending.q && !m.voted) this.send(this.pending);
+          if (this.pending && (!m.q || m.q.id !== this.pending.q || m.voted)) this.pending = null;
           if (this.onState) this.onState(m);
+          this.ready = true;
           fin(true);
-        } else if (m.t === "voted") { this.voted[m.q] = true; this.acks[m.q] = (this.acks[m.q] || 0) + 1; if (m.already) this.already = (this.already || 0) + 1; if (this._voteT0) { this.voteLat = now() - this._voteT0; this._voteT0 = null; } }
+        } else if (m.t === "voted") { this.voted[m.q] = true; this.pending = null; this.acks[m.q] = (this.acks[m.q] || 0) + 1; if (m.already) this.already = (this.already || 0) + 1; if (this._voteT0) { this.voteLat = now() - this._voteT0; this._voteT0 = null; } }
         else if (m.t === "error") this.errors++;
       };
-      ws.onclose = (e) => { this.open = false; fin(false, this.connects && ws.readyState !== 0 ? `chiusa dal server (codice ${e.code})` : `rifiutata (codice ${e.code})`); };
+      ws.onclose = (e) => {
+        // chiusura non chiesta dal test (es. riavvio del server): il telefono si ricollega da solo, come quello vero
+        if (ws === this.ws && this.ready && !this.deliberate) {
+          cuts.push(now()); this.ready = false;
+          if (!this.autoRec) this.autoRec = (async () => { await sleep(rnd(800, 3300)); await this.connectRetry(); this.autoRec = null; })();
+        }
+        this.open = false; fin(false, this.connects && ws.readyState !== 0 ? `chiusa dal server (codice ${e.code})` : `rifiutata (codice ${e.code})`); };
       ws.onerror = (e) => { if (!this.open) fin(false, "errore: " + ((e && e.message) || "connessione non riuscita")); };
       setTimeout(() => fin(false, "nessuna risposta entro 10 s"), 10000);
     });
@@ -101,27 +113,36 @@ class Phone {
     this.attempts = attempt; return null;
   }
   send(o) { if (this.ws && this.ws.readyState === 1) { this.ws.send(JSON.stringify(o)); return true; } return false; }
-  vote(q, payload) { this._voteT0 = now(); return this.send({ t: "vote", q, ...payload }); }
-  drop() { try { this.ws.close(); } catch {} this.open = false; }
+  vote(q, payload) { this._voteT0 = now(); this.pending = { t: "vote", q, ...payload }; return this.send(this.pending); }
+  drop() { this.deliberate = true; this.ready = false; try { this.ws.close(); } catch {} this.open = false; }
 }
 
 // ------------------------------------------------------------------ la presentazione finta
 class Presenter {
-  constructor(eventId) { this.eventId = eventId; this.q = null; this.results = {}; this.beat = null; this.ws = null; }
-  connect() {
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(`${WS_BASE}/ws?role=presenter&event=${this.eventId}&token=${token}`);
-      this.ws = ws;
-      ws.onopen = () => { this.announce(); resolve(); };
-      ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.t === "results") this.results[m.q] = m; if (m.t === "locked") console.log("evento bloccato da", m.by); };
-      ws.onerror = () => reject(new Error("presentazione: collegamento non riuscito"));
-      clearInterval(this.beat); this.beat = setInterval(() => this.announce(), 2000);
-    });
+  constructor(eventId) { this.eventId = eventId; this.q = null; this.results = {}; this.beat = null; this.ws = null; this.cuts = 0; }
+  // come l'add-in: se il server chiude la connessione, si ricollega da solo in pochi secondi
+  async connect() {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      if (attempt) await sleep(1000 + Math.random() * 1000);
+      const ok = await new Promise((resolve) => {
+        const ws = new WebSocket(`${WS_BASE}/ws?role=presenter&event=${this.eventId}&token=${token}`);
+        this.ws = ws; this.deliberate = false;
+        ws.onopen = () => { ws._opened = true; this.announce(); resolve(true); };
+        ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.t === "results") this.results[m.q] = m; if (m.t === "locked") console.log("evento bloccato da", m.by); };
+        ws.onerror = () => resolve(false);
+        ws.onclose = () => {
+          resolve(false);
+          if (ws === this.ws && !this.deliberate && ws._opened) { this.cuts++; console.log(`${clock()} la presentazione è stata scollegata dal server: si ricollega`); this.connect().catch(() => {}); }
+        };
+      });
+      if (ok) { clearInterval(this.beat); this.beat = setInterval(() => this.announce(), 2000); return; }
+    }
+    throw new Error("la presentazione non riesce a collegarsi al server");
   }
   announce() { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify({ t: "show", q: this.q, k: "loadtest", force: true })); }
   show(q) { this.q = q; this.announce(); }
-  drop() { clearInterval(this.beat); try { this.ws.close(); } catch {} }
-  stop() { clearInterval(this.beat); try { this.ws.send(JSON.stringify({ t: "stop" })); this.ws.close(); } catch {} }
+  drop() { this.deliberate = true; clearInterval(this.beat); try { this.ws.close(); } catch {} }
+  stop() { this.deliberate = true; clearInterval(this.beat); try { this.ws.send(JSON.stringify({ t: "stop" })); this.ws.close(); } catch {} }
 }
 
 const t00 = Date.now();
@@ -137,6 +158,7 @@ async function writeSummary(extra) {
 
 async function main() {
   console.log(`Test su ${BASE} con ${USERS} telefoni\n`);
+  const boot0 = (await api("status")).boot;
   token = (await api("login", { email: process.env.EMAIL, password: process.env.PASSWORD })).token;
   const ev = (await api("events", { name: "Test di carico " + new Date().toISOString().slice(0, 16).replace("T", " ") })).event;
   console.log(`Evento di prova creato: ${ev.name} (codice ${ev.code})`);
@@ -144,6 +166,7 @@ async function main() {
   const q2 = (await api(`events/${ev.id}/questions`, { data: { kind: "cw", title: "Test di carico: stima", min: 0 } })).question;
 
   const pres = new Presenter(ev.id);
+  const tStart = now();
   try {
     await pres.connect();
     pres.show(q1.id);
@@ -243,6 +266,15 @@ async function main() {
     const bk = phones.map((p) => p.backAt).filter((x) => x != null);
     check("Al ritorno della presentazione la domanda riappare a tutti", bk.length === USERS, `${bk.length}/${USERS}; ritardo: ${stats(bk)}`);
 
+    // il server si è riavviato durante il test? (di solito succede quando viene pubblicata una nuova versione)
+    const boot1 = (await api("status")).boot;
+    const bursts = [];
+    [...cuts].sort((a, b) => a - b).forEach((t) => { const last = bursts[bursts.length - 1]; if (last && t - last.t1 < 3000) { last.n++; last.t1 = t; } else bursts.push({ t0: t, t1: t, n: 1 }); });
+    const big = bursts.filter((b) => b.n >= USERS * 0.1);
+    const restarted = (boot0 && boot1 && boot0 !== boot1) || big.length > 0;
+    check("Server stabile durante il test (nessun riavvio)", !restarted,
+      restarted ? `il server si è riavviato ${big.length ? `(${big.map((b) => b.n + " telefoni scollegati insieme a " + Math.round((b.t0 - tStart) / 1000) + " s dall'inizio").join("; ")})` : ""} — di solito è una nuova pubblicazione del codice: aspetta qualche minuto e ripeti il test`
+        : cuts.length ? `${cuts.length} scollegamenti isolati dal server, tutti ricollegati` : "nessuno scollegamento inatteso");
     const nFail = Object.values(reasons).reduce((a, b) => a + b, 0);
     const totTries = phones.reduce((a, p) => a + p.connects, 0) + nFail;
     check("Tentativi di collegamento falliti (poi ripetuti) sotto l'1%", nFail <= totTries * 0.01,

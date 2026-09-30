@@ -134,6 +134,7 @@ export class Hub {
     this.dirty = new Set(); this.flushTimer = null;
     this.sims = new Map();        // simulazioni di voto in corso, per domanda
     this.loginFails = new Map();
+    this.boot = rid(8);           // cambia a ogni riavvio (usato dal test di carico per accorgersene)
   }
 
   // ----- database -----
@@ -452,7 +453,7 @@ export class Hub {
 
     // --- pubbliche ---
     if (p[0] === "status" && m === "GET") {
-      return json({ needsSetup: !this.get("SELECT id FROM users LIMIT 1") });
+      return json({ needsSetup: !this.get("SELECT id FROM users LIMIT 1"), boot: this.boot });
     }
     if (p[0] === "setup" && m === "POST") {
       if (this.get("SELECT id FROM users LIMIT 1")) fail(403, "Il sistema è già configurato");
