@@ -3,10 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Prima di tutto lo sfondo blu: in proiezione, mentre l'add-in si carica, non si vede il bianco -->
+<style>html, body { background: #02151f; margin: 0; height: 100%; }</style>
 <title>Taxi1729 Poll</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Raleway:wght@300;400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-<script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
 <link rel="stylesheet" href="/shared/theme.css">
 <link rel="stylesheet" href="/shared/slide.css">
 <style>
@@ -39,6 +40,9 @@
 <div id="slideCtl" class="hidden"></div>
 <div id="debugStrip" class="hidden"></div>
 <div id="editor" class="hidden"></div>
+
+<!-- La libreria di Microsoft si carica dopo il primo disegno della pagina -->
+<script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
 
 <script src="/shared/api.js"></script>
 <script src="/shared/slide.js"></script>

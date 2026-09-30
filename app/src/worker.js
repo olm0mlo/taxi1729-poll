@@ -75,6 +75,7 @@ export class Hub {
         lastBeat: Date.now(), revealed: !!r.revealed });
     }
     this.dirty = new Set(); this.flushTimer = null;
+    this.sims = new Map();        // simulazioni di voto in corso, per domanda
     this.loginFails = new Map();
   }
 
@@ -90,6 +91,9 @@ export class Hub {
       "CREATE TABLE IF NOT EXISTS live (event_id TEXT PRIMARY KEY, question_id TEXT, since INTEGER, user_id TEXT, user_name TEXT, revealed INTEGER NOT NULL DEFAULT 0)"
     ];
     for (const q of ddl) this.sql.exec(q);
+    // v2: voti simulati (per provare la grafica), marcati a parte
+    const cols = this.sql.exec("PRAGMA table_info(votes)").toArray().map(c => c.name);
+    if (!cols.includes("sim")) this.sql.exec("ALTER TABLE votes ADD COLUMN sim INTEGER NOT NULL DEFAULT 0");
   }
   all(q, ...a) { return this.sql.exec(q, ...a).toArray(); }
   get(q, ...a) { return this.all(q, ...a)[0] || null; }
@@ -166,7 +170,8 @@ export class Hub {
     const n = q.data.options.length, t = this.tally(qid);
     const counts = Array(n).fill(0);
     for (const ch of t.byVoter.values()) for (const i of ch) if (i >= 0 && i < n) counts[i]++;
-    const res = { t: "results", q: qid, total: t.byVoter.size, counts };
+    let sim = 0; for (const v of t.byVoter.keys()) if (v.startsWith("sim-")) sim++;
+    const res = { t: "results", q: qid, total: t.byVoter.size, counts, sim };
     const base = q.data.segmentBy ? this.getQ(q.data.segmentBy) : null;
     if (base) {
       const bt = this.tally(base.id), bn = base.data.options.length;
@@ -194,6 +199,60 @@ export class Hub {
       for (const other of this.eventQuestions(q.eventId)) if (other.data.segmentBy === qid) this.sendAll("p:" + q.eventId, this.results(other.id));
     }
   }
+  // ----- simulazione di voti (solo per provare la grafica) -----
+  // I votanti simulati hanno un identificativo "sim-…", che i telefoni veri non possono usare.
+  startSim(q, count, seconds) {
+    this.stopSim(q.id);
+    const n = q.data.options.length;
+    const base = q.data.segmentBy ? this.getQ(q.data.segmentBy) : null;
+    const bn = base ? base.data.options.length : 0;
+    const mkW = () => Array.from({ length: n }, () => 0.2 + Math.random() ** 1.5);   // alcune risposte più popolari di altre
+    const weights = base ? Array.from({ length: bn }, mkW) : [mkW()];
+    const baseW = base ? Array.from({ length: bn }, () => 0.25 + Math.random()) : null;
+    const pick = (ws) => { let r = Math.random() * ws.reduce((a, b) => a + b, 0); for (let i = 0; i < ws.length; i++) { r -= ws[i]; if (r <= 0) return i; } return ws.length - 1; };
+    const baseVoters = base ? [...this.tally(base.id).byVoter.entries()].filter(([v]) => v.startsWith("sim-")) : [];
+    let bi = 0;
+    const perTick = seconds > 0 ? Math.max(1, Math.ceil(count / (seconds * 4))) : count;
+    const job = { made: 0, total: count, timer: null };
+    this.sims.set(q.id, job);
+    const tick = () => {
+      if (this.sims.get(q.id) !== job) return;
+      const L = this.live.get(q.eventId);
+      if (!L || L.qid !== q.id) { this.stopSim(q.id); return; }      // domanda chiusa: la simulazione si ferma
+      const t = this.tally(q.id), now = Date.now();
+      for (let k = 0; k < perTick && job.made < job.total; k++) {
+        let voter = null, seg = 0;
+        if (base) {
+          while (bi < baseVoters.length && t.byVoter.has(baseVoters[bi][0])) bi++;
+          if (bi < baseVoters.length) { voter = baseVoters[bi][0]; seg = Math.min(bn - 1, baseVoters[bi][1][0] || 0); bi++; }
+          else {
+            voter = "sim-" + rid(10); seg = pick(baseW);
+            this.run("INSERT OR IGNORE INTO votes (question_id, voter, choices, created, sim) VALUES (?, ?, ?, ?, 1)", base.id, voter, JSON.stringify([seg]), now);
+            this.tally(base.id).byVoter.set(voter, [seg]); this.markDirty(base.id);
+          }
+        } else voter = "sim-" + rid(10);
+        const ws = weights[seg];
+        let choices;
+        if (q.data.multi) {
+          const mx = Math.max(...ws);
+          choices = ws.map((w, i) => (Math.random() < Math.min(0.85, w / mx * 0.6) ? i : -1)).filter(i => i >= 0);
+          if (!choices.length) choices = [pick(ws)];
+        } else choices = [pick(ws)];
+        this.run("INSERT OR IGNORE INTO votes (question_id, voter, choices, created, sim) VALUES (?, ?, ?, ?, 1)", q.id, voter, JSON.stringify(choices), now);
+        t.byVoter.set(voter, choices);
+        job.made++;
+      }
+      this.markDirty(q.id);
+      if (job.made < job.total) job.timer = setTimeout(tick, 250); else this.sims.delete(q.id);
+    };
+    tick();
+    return job;
+  }
+  stopSim(qid) {
+    const job = this.sims.get(qid);
+    if (job) { clearTimeout(job.timer); this.sims.delete(qid); }
+  }
+
   clearVotes(qids) {
     for (const id of qids) { this.run("DELETE FROM votes WHERE question_id = ?", id); this.tallies.delete(id); this.markDirty(id); }
   }
@@ -337,7 +396,10 @@ export class Hub {
       }
       const ev = this.getEvent(p[1]); if (!ev) fail(404, "Evento non trovato");
       if (!p[2] && m === "GET") {
-        const questions = this.eventQuestions(ev.id).map(q => ({ id: q.id, pos: q.pos, data: q.data, updated: q.updated, votes: this.tally(q.id).byVoter.size }));
+        const questions = this.eventQuestions(ev.id).map(q => {
+          const t = this.tally(q.id); let sim = 0; for (const v of t.byVoter.keys()) if (v.startsWith("sim-")) sim++;
+          return { id: q.id, pos: q.pos, data: q.data, updated: q.updated, votes: t.byVoter.size, sim, simulating: this.sims.has(q.id) };
+        });
         return json({ event: this.pubEvent(ev), questions });
       }
       if (!p[2] && m === "PATCH") {
@@ -374,6 +436,14 @@ export class Hub {
         this.clearVotes(this.eventQuestions(ev.id).map(q => q.id));
         return json({ ok: true });
       }
+      if (p[2] === "simvotes" && m === "DELETE") {
+        for (const q of this.eventQuestions(ev.id)) {
+          this.stopSim(q.id);
+          this.run("DELETE FROM votes WHERE question_id = ? AND sim = 1", q.id);
+          this.tallies.delete(q.id); this.markDirty(q.id);
+        }
+        return json({ ok: true });
+      }
       if (p[2] === "export.csv" && m === "GET") return this.exportCsv(ev);
     }
 
@@ -394,6 +464,7 @@ export class Hub {
         return json({ question: { id: q.id, pos: q.pos, data, updated: now, votes: this.tally(q.id).byVoter.size } });
       }
       if (!p[2] && m === "DELETE") {
+        this.stopSim(q.id);
         this.run("DELETE FROM votes WHERE question_id = ?", q.id);
         this.run("DELETE FROM questions WHERE id = ?", q.id);
         this.tallies.delete(q.id); this.qcache.delete(q.id); this.touch(q.eventId);
@@ -409,7 +480,17 @@ export class Hub {
         return json({ question: { id, pos: q.pos + 1, data, updated: now, votes: 0 } });
       }
       if (p[2] === "results" && m === "GET") return json(this.results(q.id));
-      if (p[2] === "votes" && m === "DELETE") { this.clearVotes([q.id]); return json({ ok: true }); }
+      if (p[2] === "votes" && m === "DELETE") { this.stopSim(q.id); this.clearVotes([q.id]); return json({ ok: true }); }
+      if (p[2] === "simulate" && m === "POST") {
+        const b = await body();
+        if (b.stop) { this.stopSim(q.id); return json({ ok: true }); }
+        const L = this.live.get(q.eventId);
+        if (!L || L.qid !== q.id) fail(409, "Per simulare i voti la domanda deve essere in presentazione: vai sulla sua slide e riprova.");
+        const count = Math.max(1, Math.min(2000, parseInt(b.count, 10) || 100));
+        const seconds = Math.max(0, Math.min(300, parseInt(b.seconds, 10) || 0));
+        this.startSim(q, count, seconds);
+        return json({ ok: true, count, seconds });
+      }
     }
 
     fail(404, "Richiesta non riconosciuta");
@@ -446,7 +527,11 @@ export class Hub {
   exportCsv(ev) {
     const rows = [["Evento", "Domanda n.", "Domanda", "Risposta", "Voti", "Percentuale", "Partecipanti alla domanda"]];
     for (const q of this.eventQuestions(ev.id)) {
-      const r = this.results(q.id);
+      // conteggi dai soli voti veri (i simulati sono esclusi)
+      const n = q.data.options.length, r = { counts: Array(n).fill(0), total: 0 };
+      for (const v of this.all("SELECT choices FROM votes WHERE question_id = ? AND sim = 0", q.id)) {
+        r.total++; for (const i of JSON.parse(v.choices)) if (i >= 0 && i < n) r.counts[i]++;
+      }
       q.data.options.forEach((o, i) => {
         rows.push([ev.name, q.pos, q.data.title || "(senza testo)", o || `Opzione ${i + 1}`, r.counts[i],
           r.total ? (Math.round(r.counts[i] / r.total * 1000) / 10).toString().replace(".", ",") + "%" : "0%", r.total]);

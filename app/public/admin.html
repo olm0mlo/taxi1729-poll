@@ -177,7 +177,7 @@
         if (m.t === "results") {
           state.results[m.q] = m;
           var q = state.questions.find(function (x) { return x.id === m.q; });
-          if (q && q.votes !== m.total) { q.votes = m.total; var el = document.getElementById("votes-" + q.id); if (el) el.textContent = votesLabel(m.total); }
+          if (q && (q.votes !== m.total || q.sim !== m.sim)) { q.votes = m.total; q.sim = m.sim || 0; var el = document.getElementById("votes-" + q.id); if (el) el.textContent = votesLabel(q.votes, q.sim); }
           if (openPreview && openPreview.qid === m.q) openPreview.slide.setResults(m);
         } else if (m.t === "live") {
           state.event.presenting = m.q !== undefined && m.by ? { by: m.by, q: m.q } : null;
@@ -186,7 +186,7 @@
       });
     });
     var openPreview = null;
-    function votesLabel(n) { return n + (n === 1 ? " risposta" : " risposte"); }
+    function votesLabel(n, sim) { return n + (n === 1 ? " risposta" : " risposte") + (sim ? " (di cui " + sim + " simulate)" : ""); }
     function liveLabel() {
       var p = state.event.presenting;
       if (!p) return "";
@@ -204,6 +204,7 @@
         '<div class="bar"><span id="liveInfo">' + liveLabel() + '</span><span class="grow"></span>' +
         '<a class="btn" href="/present?event=' + esc(ev.id) + '" target="_blank">▶ Presenta nel browser</a>' +
         '<a class="btn ghost" id="exp" href="#">Esporta risultati (Excel)</a>' +
+        '<button class="btn ghost" id="clearSim">Cancella voti simulati</button>' +
         '<button class="btn danger" id="clearAll">Cancella tutti i risultati</button>' +
         '<button class="btn danger" id="delEv">Elimina evento</button></div>' +
         '<p class="muted" style="margin:-4px 0 16px">Link per il pubblico: <a href="' + esc(T.joinUrl(ev.code)) + '" target="_blank">' + esc(T.joinUrl(ev.code)) + '</a></p>' +
@@ -217,6 +218,9 @@
       };
       document.getElementById("exp").onclick = function (e) {
         e.preventDefault(); location.href = "/api/events/" + id + "/export.csv?token=" + encodeURIComponent(T.token());
+      };
+      document.getElementById("clearSim").onclick = function () {
+        T.api("events/" + id + "/simvotes", { method: "DELETE" }).then(load, function (e) { alert(e.message); });
       };
       document.getElementById("clearAll").onclick = function () {
         if (!confirmDo("Cancellare TUTTI i risultati di questo evento? Le domande restano, i voti vengono eliminati definitivamente.")) return;
@@ -239,15 +243,16 @@
         el.innerHTML = '<div class="qnum">' + (idx + 1) + '</div><div class="main"><div class="ttl">' + esc(q.data.title || "(domanda senza testo)") + '</div>' +
           '<div style="margin-top:4px"><span class="chip">' + q.data.options.length + ' opzioni</span><span class="chip">' + (q.data.multi ? "Scelta multipla" : "Scelta singola") + '</span>' +
           '<span class="chip">' + chartName(q.data.chart) + '</span><span class="chip">' + (q.data.reveal === "click" ? "Risultati su click" : "Risultati live") + '</span>' +
-          (q.data.segmentBy ? '<span class="chip">Segmentata</span>' : '') + '<span class="chip yellow" id="votes-' + esc(q.id) + '">' + votesLabel(q.votes) + '</span></div></div>' +
+          (q.data.segmentBy ? '<span class="chip">Segmentata</span>' : '') + '<span class="chip yellow" id="votes-' + esc(q.id) + '">' + votesLabel(q.votes, q.sim) + '</span></div></div>' +
           '<div class="acts"><button class="btn ghost small" data-a="edit">Modifica</button><button class="btn ghost small" data-a="res">Risultati</button>' +
           '<button class="btn ghost small" data-a="up" title="Sposta su"' + (idx ? '' : ' disabled') + '>↑</button>' +
           '<button class="btn ghost small" data-a="down" title="Sposta giù"' + (idx < state.questions.length - 1 ? '' : ' disabled') + '>↓</button>' +
-          '<button class="btn ghost small" data-a="dup">Duplica</button><button class="btn danger small" data-a="clear">Svuota</button><button class="btn danger small" data-a="del">Elimina</button></div>';
+          '<button class="btn ghost small" data-a="sim" title="Genera voti finti per provare la grafica">Simula voti</button><button class="btn ghost small" data-a="dup">Duplica</button><button class="btn danger small" data-a="clear">Svuota</button><button class="btn danger small" data-a="del">Elimina</button></div>';
         el.querySelector('[data-a="edit"]').onclick = function () { openEditor(q, el); };
         el.querySelector('[data-a="res"]').onclick = function () { openResults(q, idx + 1); };
         el.querySelector('[data-a="up"]').onclick = function () { move(idx, -1); };
         el.querySelector('[data-a="down"]').onclick = function () { move(idx, 1); };
+        el.querySelector('[data-a="sim"]').onclick = function () { openSim(q, idx + 1); };
         el.querySelector('[data-a="dup"]').onclick = function () { T.api("questions/" + q.id + "/duplicate", { method: "POST" }).then(load); };
         el.querySelector('[data-a="clear"]').onclick = function () {
           if (confirmDo("Cancellare i risultati di questa domanda?")) T.api("questions/" + q.id + "/votes", { method: "DELETE" }).then(load);
@@ -283,6 +288,27 @@
       var j = idx + dir; if (j < 0 || j >= ids.length) return;
       var t = ids[idx]; ids[idx] = ids[j]; ids[j] = t;
       T.api("events/" + id + "/reorder", { body: { ids: ids } }).then(load);
+    }
+    function openSim(q, number) {
+      modal.innerHTML = '<div class="modal"><div class="card" style="max-width:520px"><div class="bar" style="margin-top:0"><h3 class="grow">Simula voti · domanda ' + number + '</h3>' +
+        '<button class="btn ghost small" id="mClose">Chiudi</button></div>' +
+        '<p class="muted" style="margin-top:0">Genera voti finti per vedere come appare la slide con tante risposte. La domanda deve essere <b>in presentazione</b> (in PowerPoint o nel browser): i voti arrivano in diretta sulla slide.</p>' +
+        '<div class="field-inline"><div><label class="lbl">Quanti voti</label><select id="sCount"><option>20</option><option selected>100</option><option>300</option><option>500</option><option>1000</option></select></div>' +
+        '<div><label class="lbl">In quanto tempo</label><select id="sSec"><option value="0">Tutti subito</option><option value="10">10 secondi</option><option value="30" selected>30 secondi</option><option value="60">1 minuto</option></select></div></div>' +
+        (q.data.segmentBy ? '<div class="hint">La domanda è segmentata: se servono, vengono simulate anche le risposte alla domanda di base.</div>' : '') +
+        '<div id="sMsg"></div><div class="qe-actions"><button class="btn" id="sGo">Avvia simulazione</button><button class="btn ghost" id="sStop">Ferma</button></div>' +
+        '<p class="muted" style="margin-bottom:0;font-size:13px">I voti simulati si tolgono con <b>Cancella voti simulati</b> e non entrano mai nell\'esportazione per Excel.</p></div></div>';
+      function close() { modal.innerHTML = ""; }
+      function msg(t, ok) { document.getElementById("sMsg").innerHTML = '<div class="' + (ok ? '' : 'err') + '" style="margin-top:10px;font-weight:600' + (ok ? ';color:var(--ok)' : '') + '">' + esc(t) + '</div>'; }
+      document.getElementById("mClose").onclick = close;
+      modal.firstChild.onclick = function (e) { if (e.target === modal.firstChild) close(); };
+      document.getElementById("sGo").onclick = function () {
+        T.api("questions/" + q.id + "/simulate", { body: { count: +document.getElementById("sCount").value, seconds: +document.getElementById("sSec").value } })
+          .then(function (d) { msg("Simulazione avviata: " + d.count + " voti" + (d.seconds ? " in " + d.seconds + " secondi" : "") + ".", true); }, function (e) { msg(e.message); });
+      };
+      document.getElementById("sStop").onclick = function () {
+        T.api("questions/" + q.id + "/simulate", { body: { stop: true } }).then(function () { msg("Simulazione fermata.", true); }, function (e) { msg(e.message); });
+      };
     }
     function openResults(q, number) {
       modal.innerHTML = '<div class="modal"><div class="card"><div class="bar" style="margin-top:0"><h3 class="grow">Risultati · domanda ' + number + '</h3>' +
