@@ -5,8 +5,8 @@
 // Durable Object, "Hub", che conserva i dati in un database SQLite interno e tiene aperti
 // i collegamenti con PowerPoint, il pannello e i telefoni del pubblico.
 
-const STALE_MS = 8000;
-const HIDE_GRACE_MS = 1500;         // attesa prima di chiudere una domanda quando la sua slide si chiude              // senza conferme dalla slide per 8 s, la domanda si chiude per il pubblico
+const STALE_MS = 8000;              // senza conferme dalla slide per 8 s, la domanda si chiude per il pubblico
+const HIDE_GRACE_MS = 2500;         // attesa prima di chiudere una domanda quando la sua slide si chiude
 const LOCK_MS = 10 * 60 * 1000;     // una presentazione senza segnali da 10 minuti è considerata "sospesa"
 const SESSION_MS = 60 * 24 * 3600 * 1000;
 const PBKDF2_ITER = 20000;

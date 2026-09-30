@@ -2,7 +2,7 @@
 .t-stage { position: absolute; inset: 0; background: #02151f; overflow: hidden; color: #fff;
   font-family: "Inter", system-ui, sans-serif; }
 .t-canvas { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0;
-  display: grid; grid-template-columns: 1fr 480px; gap: 80px; padding: 56px 96px 76px; }
+  display: grid; grid-template-columns: 1fr; padding: 56px 96px 150px; }
 .t-left { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .t-kicker { font-family: "Raleway", sans-serif; font-weight: 300; font-size: 44px; color: #e8ea6e; display: flex; align-items: baseline; gap: 12px; min-width: 0; }
 .t-kicker span { text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -11,36 +11,45 @@
 .t-title { font-weight: 800; font-size: 80px; line-height: 1.08; letter-spacing: -.02em; margin: 22px 0 34px; }
 .t-title.m { font-size: 64px; } .t-title.s { font-size: 52px; }
 .t-chart { flex: 1; min-height: 0; position: relative; }
-.t-right { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 22px; text-align: center; padding-top: 14px; }
-/* il QR parte all'altezza della riga con il numero e il nome dell'evento */
-.t-qr { background: #fff; padding: 22px; border-radius: 18px; width: 100%; aspect-ratio: 1; }
+/* Slide delle domande: QR piccolo in alto a destra con il codice sotto, grafico a tutta larghezza,
+   numero di risposte in basso a sinistra allineato al logo */
+.t-kicker, .t-title { max-width: calc(100% - 300px); }
+.t-right { position: absolute; inset: 0; pointer-events: none; }
+.t-qr { position: absolute; top: 56px; right: 96px; width: 200px; aspect-ratio: 1; background: #fff; padding: 12px; border-radius: 14px; }
+.t-code { position: absolute; top: 270px; right: 96px; width: 200px; text-align: center; font-family: "Raleway", sans-serif; font-size: 24px; color: #9fb3b9; }
+.t-code b { font-family: "Inter", sans-serif; font-weight: 800; color: #fff; letter-spacing: .08em; margin-left: 4px; }
 .t-qr img, .t-qr canvas { width: 100% !important; height: auto !important; display: block; }
-.t-join { font-family: "Raleway", sans-serif; font-size: 28px; color: #9fb3b9; line-height: 1.35; }
+.t-join { display: none; font-family: "Raleway", sans-serif; font-size: 28px; color: #9fb3b9; line-height: 1.35; }
 .t-join strong { display: block; font-family: "Inter", sans-serif; font-weight: 800; font-size: 60px; color: #fff; letter-spacing: .14em; margin-top: 4px; }
-.t-total { font-size: 30px; color: #9fb3b9; margin-top: auto; margin-bottom: 70px; }
-/* il numero di risposte sta in fondo alla colonna, all'altezza della fine del grafico */
+.t-total { position: absolute; left: 96px; bottom: 30px; font-size: 54px; line-height: 56px; font-weight: 300; color: #9fb3b9; }
 .t-total b { color: #fff; font-weight: 800; }
 .t-logo { position: absolute; right: 96px; bottom: 30px; height: 56px; }
 .t-welcome-text { font-family: "Raleway", sans-serif; font-weight: 300; font-size: 42px; line-height: 1.4; color: #9fb3b9; max-width: 92%; }
-.t-stage.welcome .t-canvas { grid-template-columns: 1fr 660px; }
+/* Slide di benvenuto: QR grande a destra, con indirizzo e codice */
+.t-stage.welcome .t-canvas { grid-template-columns: 1fr 660px; gap: 80px; padding-bottom: 76px; }
+.t-stage.welcome .t-kicker, .t-stage.welcome .t-title { max-width: none; }
+.t-stage.welcome .t-right { position: static; pointer-events: auto; display: flex; flex-direction: column; align-items: center; gap: 22px; text-align: center; padding-top: 14px; }
+.t-stage.welcome .t-qr { position: static; width: 100%; padding: 22px; border-radius: 18px; }
+.t-stage.welcome .t-code { display: none; }
+.t-stage.welcome .t-join { display: block; }
 .t-stage.welcome .t-title { font-size: 104px; }
 .t-notice { position: absolute; left: 96px; right: 96px; bottom: 26px; height: 64px; display: flex; align-items: center; gap: 16px;
   font-size: 26px; color: #fff; }
 .t-notice span { background: rgba(242,143,134,.18); border: 2px solid #f28f86; padding: 8px 18px; border-radius: 12px; }
 
 /* Grafici */
-.t-bars { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; }
+.t-bars { position: absolute; left: 0; right: 0; top: 0; display: flex; flex-direction: column; justify-content: flex-start; }
 .t-bar { display: grid; grid-template-columns: 1fr auto; column-gap: 28px; align-items: end; }
-.t-bar .l { font-family: "Raleway", sans-serif; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.t-bar .v { font-weight: 800; color: #e8ea6e; font-variant-numeric: tabular-nums; }
-.t-bar .v small { font-weight: 400; color: #9fb3b9; margin-left: 12px; font-size: .7em; }
+.t-bar .l { font-family: "Raleway", sans-serif; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t-bar .v { font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; }
+.t-bar .v small { font-weight: 400; color: #9fb3b9; margin-left: 12px; font-size: 22px; }
 .t-bar .tr { grid-column: 1 / -1; background: rgba(255,255,255,.08); border-radius: 99px; overflow: hidden; display: flex; }
 .t-bar .f { height: 100%; transition: width .7s cubic-bezier(.2,.7,.2,1); }
 .t-legend { display: flex; flex-wrap: wrap; gap: 8px 28px; font-family: "Raleway", sans-serif; font-size: 26px; color: #dfe7e8; margin-bottom: 18px; }
 .t-legend i { display: inline-block; width: 20px; height: 20px; border-radius: 50%; margin-right: 10px; vertical-align: -2px; }
 .t-legend .ttl { color: #9fb3b9; width: 100%; font-size: 22px; }
 .t-hiddenres { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 12px; }
-.t-hiddenres .big { font-size: 150px; font-weight: 800; line-height: 1; color: #e8ea6e; }
+.t-hiddenres .big { font-size: 150px; font-weight: 800; line-height: 1; color: #fff; }
 .t-hiddenres .lab { font-family: "Raleway", sans-serif; font-size: 40px; color: #9fb3b9; font-weight: 300; }
 .t-svg { position: absolute; inset: 0; }
 .t-svg text { font-family: "Raleway", sans-serif; fill: #fff; }
