@@ -37,30 +37,64 @@
 
   // Collegamento in tempo reale che si riconnette da solo.
   // onMessage(msg), onStatus(connected:boolean)
-  T.live = function (params, onMessage, onStatus) {
-    var ws = null, closed = false, retry = 0, pingTimer = null, queue = [];
+  // - se il server non risponde a un "ping" entro 8 s la connessione è considerata morta (es. il telefono ha
+  //   cambiato rete) e si riapre subito;
+  // - quando la pagina torna visibile (telefono sbloccato) o la rete torna disponibile, si controlla subito.
+  // opts.pingMs / opts.pongMs: ogni quanto controllare e quanto aspettare la risposta (la presentazione controlla
+  // più spesso dei telefoni, così si accorge in pochi secondi se la rete del computer si è bloccata).
+  T.live = function (params, onMessage, onStatus, opts) {
+    opts = opts || {};
+    var PING_MS = opts.pingMs || 25000, PONG_MS = opts.pongMs || 8000;
+    var ws = null, closed = false, retry = 0, pingTimer = null, queue = [], retryTimer = null, pongTimer = null;
     function url() {
       var q = Object.keys(params).map(function (k) { return encodeURIComponent(k) + "=" + encodeURIComponent(params[k]); }).join("&");
       return (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws?" + q;
     }
     function open() {
       if (closed) return;
-      try { ws = new WebSocket(url()); } catch (e) { schedule(); return; }
-      ws.onopen = function () {
+      clearTimeout(retryTimer); retryTimer = null;
+      var me;
+      try { me = ws = new WebSocket(url()); } catch (e) { schedule(); return; }
+      me.onopen = function () {
+        if (me !== ws) return;
         retry = 0; onStatus && onStatus(true);
-        var q = queue; queue = []; q.forEach(function (m) { ws.send(m); });
+        var q = queue; queue = []; q.forEach(function (m) { me.send(m); });
         clearInterval(pingTimer);
-        pingTimer = setInterval(function () { send({ t: "ping" }); }, 25000);
+        pingTimer = setInterval(function () { probe(); }, PING_MS);
       };
-      ws.onmessage = function (e) { var m; try { m = JSON.parse(e.data); } catch (x) { return; } if (m.t !== "pong") onMessage(m); };
-      ws.onclose = function () { clearInterval(pingTimer); onStatus && onStatus(false); schedule(); };
-      ws.onerror = function () { try { ws.close(); } catch (e) {} };
+      me.onmessage = function (e) {
+        if (me !== ws) return;
+        clearTimeout(pongTimer); pongTimer = null;
+        var m; try { m = JSON.parse(e.data); } catch (x) { return; } if (m.t !== "pong") onMessage(m);
+      };
+      me.onclose = function () { if (me !== ws) return; drop(); };
+      me.onerror = function () { try { me.close(); } catch (e) {} };
+    }
+    // connessione persa: si abbandona quella vecchia (anche se il sistema non l'ha ancora chiusa) e si riprova
+    function drop(now) {
+      clearInterval(pingTimer); clearTimeout(pongTimer); pongTimer = null;
+      var old = ws; ws = null;
+      if (old) { old.onopen = old.onmessage = old.onclose = old.onerror = null; try { old.close(); } catch (e) {} }
+      onStatus && onStatus(false);
+      if (now) { retry = 0; open(); } else schedule();
+    }
+    function probe(timeout) {
+      if (!ws || ws.readyState !== 1 || pongTimer) return;
+      try { ws.send(JSON.stringify({ t: "ping" })); } catch (e) { drop(true); return; }
+      pongTimer = setTimeout(function () { pongTimer = null; drop(true); }, timeout || PONG_MS);
     }
     function schedule() {
-      if (closed) return;
+      if (closed || retryTimer) return;
       retry++;
-      setTimeout(open, Math.min(8000, 500 * Math.pow(1.6, retry)) + Math.random() * 600);
+      retryTimer = setTimeout(open, Math.min(8000, 500 * Math.pow(1.6, retry)) + Math.random() * 600);
     }
+    function wake() {
+      if (closed) return;
+      if (ws && ws.readyState === 1) probe(4000);
+      else if (!ws || ws.readyState !== 0) { retry = 0; open(); }
+    }
+    window.addEventListener("online", wake);
+    document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") wake(); });
     function send(obj) {
       var s = JSON.stringify(obj);
       if (ws && ws.readyState === 1) ws.send(s);
@@ -69,7 +103,7 @@
     open();
     return {
       send: send,
-      close: function () { closed = true; clearInterval(pingTimer); try { ws && ws.close(); } catch (e) {} },
+      close: function () { closed = true; clearInterval(pingTimer); clearTimeout(pongTimer); clearTimeout(retryTimer); try { ws && ws.close(); } catch (e) {} },
       isOpen: function () { return !!ws && ws.readyState === 1; }
     };
   };

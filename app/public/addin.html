@@ -178,7 +178,7 @@
     conn = T.live({ role: "presenter", event: S.eventId, token: T.token() }, onLive, function (ok) {
       log("rete: " + (ok ? "collegato" : "scollegato, riprovo…"));
       if (ok) { announce(); if (S.questionId) conn.send({ t: "watch", q: S.questionId }); }
-    });
+    }, { pingMs: 3000, pongMs: 3000 });
   }
   function onLive(m) {
     if (m.t === "results" && m.q === S.questionId) { lastResults = m; slide.setResults(m); }

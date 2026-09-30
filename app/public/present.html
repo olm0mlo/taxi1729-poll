@@ -56,7 +56,7 @@
     conn = T.live({ role: "presenter", event: ev.id, token: T.token() }, onMsg, function (ok) {
       document.getElementById("netDot").classList.toggle("on", ok);
       if (ok) announce();
-    });
+    }, { pingMs: 3000, pongMs: 3000 });
     go(0);
   }, function (e) { overlay("<h3>Impossibile aprire l'evento</h3><p>" + esc(e.message) + '</p><p><a href="/admin">Vai al pannello</a></p>'); });
 

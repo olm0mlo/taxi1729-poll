@@ -29,3 +29,8 @@ Al primo avvio, aprendo `/admin` si crea il primo utente.
   Le colonne sono automatiche o fissate a mano; le stime fuori scala finiscono nelle colonne "sotto…"/"oltre…".
   Ogni slide può mostrare la sola domanda ("Mostra domanda") o i risultati ("Mostra risultati"); nel browser tasto **Q**.
   L'esportazione CSV riporta mediana, media, minimo, massimo e tutte le stime.
+
+## Test di carico
+`loadtest/carico.mjs` simula 1000 telefoni (voti, cadute di rete, riconnessione di massa, caduta della presentazione)
+e controlla che nessun voto vada perso o venga contato due volte. Si lancia da GitHub → Actions → "Test di carico"
+(servono i secrets `T1729_EMAIL` e `T1729_PASSWORD`). Crea un evento temporaneo e lo cancella alla fine.

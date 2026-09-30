@@ -77,6 +77,7 @@
   var voter = T.store("t1729-voter");
   if (!voter) { voter = "v" + Math.random().toString(36).slice(2, 12) + Date.now().toString(36); T.store("t1729-voter", voter); }
   var current = null, selected = [], votedIds = {}, typed = "";
+  var pending = null;   // voto spedito ma non ancora confermato: se la connessione cade, al ritorno si rispedisce
   var esc = T.esc, toastTimer;
 
   function toast(msg) {
@@ -95,8 +96,10 @@
       net.textContent = ok ? "● in diretta" : "connessione persa, riprovo…";
       net.classList.toggle("off", !ok);
     });
-    window.__vote = function (qid, choices) { conn.send({ t: "vote", q: qid, choices: choices }); };
-    window.__estimate = function (qid, value) { conn.send({ t: "vote", q: qid, value: value }); };
+    window.__send = function (msg) { pending = msg; conn.send(msg); };
+    window.__resend = function () { if (pending) conn.send(pending); };
+    window.__vote = function (qid, choices) { window.__send({ t: "vote", q: qid, choices: choices }); };
+    window.__estimate = function (qid, value) { window.__send({ t: "vote", q: qid, value: value }); };
   }, function (e) {
     renderEnter(e.status === 404 ? "Codice evento non trovato. Controlla e riprova." : e.message);
   });
@@ -106,15 +109,18 @@
       var q = m.q;
       if (!q) { if (current) { current = null; renderWait(); } return; }
       if (m.voted) votedIds[q.id] = true;
+      if (pending && pending.q !== q.id) pending = null;
+      if (pending && !m.voted) window.__resend();      // il voto si era perso con la connessione: lo rispediamo
+      if (m.voted) pending = null;
       var same = current && current.id === q.id && JSON.stringify(current) === JSON.stringify(q);
       current = q;
       if (votedIds[q.id]) return renderDone();
       if (!same) { selected = []; typed = ""; renderPoll(); }
     } else if (m.t === "voted") {
-      votedIds[m.q] = true;
+      votedIds[m.q] = true; if (pending && pending.q === m.q) pending = null;
       if (current && current.id === m.q) renderDone();
     } else if (m.t === "error") {
-      toast(m.msg); if (current) renderPoll();
+      pending = null; toast(m.msg); if (current) renderPoll();
     }
   }
 

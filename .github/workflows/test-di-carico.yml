@@ -1,0 +1,38 @@
+# Test di carico sul server vero: 1000 telefoni simulati, voti, cadute di rete e riconnessioni.
+# Si avvia a mano: GitHub → Actions → "Test di carico" → Run workflow.
+# Servono due "secrets" del repository con le credenziali di un utente del pannello:
+#   T1729_EMAIL e T1729_PASSWORD   (Settings → Secrets and variables → Actions → New repository secret)
+# Il test crea un evento temporaneo "Test di carico …" e alla fine lo cancella.
+# Non avviarlo durante un evento vero: non tocca gli altri eventi, ma usa lo stesso server.
+name: Test di carico
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Indirizzo del server (es. https://taxi1729-poll.xxxx.workers.dev)"
+        required: true
+      users:
+        description: "Numero di telefoni simulati"
+        default: "1000"
+      ramp:
+        description: "In quanti secondi si collegano"
+        default: "20"
+
+jobs:
+  carico:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test di carico e riconnessioni
+        run: node loadtest/carico.mjs
+        env:
+          BASE_URL: ${{ inputs.url }}
+          USERS: ${{ inputs.users }}
+          RAMP_SECONDS: ${{ inputs.ramp }}
+          EMAIL: ${{ secrets.T1729_EMAIL }}
+          PASSWORD: ${{ secrets.T1729_PASSWORD }}
