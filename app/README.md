@@ -29,6 +29,10 @@ Al primo avvio, aprendo `/admin` si crea il primo utente.
   Le colonne sono automatiche o fissate a mano; le stime fuori scala finiscono nelle colonne "sotto…"/"oltre…".
   Ogni slide può mostrare la sola domanda ("Mostra domanda") o i risultati ("Mostra risultati"); nel browser tasto **Q**.
   L'esportazione CSV riporta mediana, media, minimo, massimo e tutte le stime.
+- **Due versioni della stessa domanda** (es. esperimento sull'effetto ancoraggio) — metà del pubblico legge la prima
+  versione, metà la seconda (assegnazione alternata, stabile anche se il telefono si ricollega); sullo schermo compare
+  un titolo neutro. Una domanda Crowd Wisdom successiva può essere "separata per gruppi": due istogrammi con la stessa
+  scala oppure, per lo svelamento, solo le due mediane/medie in grande (add-in: "Gruppi in questa slide"; browser: tasto **G**).
 
 ## Test di carico
 `loadtest/carico.mjs` simula 1000 telefoni (voti, cadute di rete, riconnessione di massa, caduta della presentazione)

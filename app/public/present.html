@@ -41,7 +41,7 @@
   var eventId = new URLSearchParams(location.search).get("event");
   var over = document.getElementById("over"), esc = T.esc;
   var slide = T.Slide(document.getElementById("slide"));
-  var chartOver = {}, answerOn = {}, qOnly = {};   // qOnly: Crowd Wisdom con la sola domanda (tasto Q)
+  var chartOver = {}, answerOn = {}, qOnly = {}, splitNum = {};   // splitNum: gruppi mostrati come numeri (tasto G)   // qOnly: Crowd Wisdom con la sola domanda (tasto Q)
   var ev = null, questions = [], idx = 0, conn = null, beat = null, live = { q: null, revealed: false }, force = false, results = {};
   T.loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js", function () { slide.redrawQr(); });
 
@@ -72,6 +72,7 @@
       slide.setChartOverride(chartOver[q.id] || null);
       slide.setAnswerVisible(!!answerOn[q.id]);
       slide.setQuestionOnly(!!qOnly[q.id]);
+      slide.setSplitView(splitNum[q.id] ? "numbers" : "hist");
       slide.setQuestion(Object.assign({ id: q.id }, q.data), idx);
       slide.setRevealed(live.q === q.id ? live.revealed : false);
       if (results[q.id]) slide.setResults(results[q.id]);
@@ -124,6 +125,9 @@
       T.api("questions/" + current().id + "/simulate", { body: { count: 100, seconds: 20 } }).catch(function (er) { alert(er.message); });
     }
     else if (e.key === "Home") go(0);
+    else if ((e.key === "g" || e.key === "G") && current() && current().data.kind === "cw" && current().data.splitBy) {
+      var qs = current(); splitNum[qs.id] = !splitNum[qs.id]; slide.setSplitView(splitNum[qs.id] ? "numbers" : "hist"); slide.playIntro();
+    }
     else if ((e.key === "q" || e.key === "Q") && current() && current().data.kind === "cw") {
       var qq = current(); qOnly[qq.id] = !qOnly[qq.id]; slide.setQuestionOnly(qOnly[qq.id]);
     }

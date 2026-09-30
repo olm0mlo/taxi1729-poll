@@ -91,3 +91,17 @@
 /* Crowd Wisdom "mostra domanda": solo il testo, grande e centrato in verticale */
 .t-stage.qonly .t-title { margin: auto 0; font-size: 96px; line-height: 1.08; padding-bottom: 40px; }
 .t-stage.qonly .t-title.m { font-size: 80px; } .t-stage.qonly .t-title.s { font-size: 64px; }
+
+/* Crowd Wisdom separato per gruppi */
+.t-hist .glab { top: 6px; left: 0; height: 40px; line-height: 40px; font-family: "Raleway", sans-serif; font-size: 30px; color: #dfe7e8; white-space: nowrap; }
+.t-hist .glab i { display: inline-block; width: 20px; height: 20px; border-radius: 50%; margin-right: 12px; vertical-align: -1px; }
+.t-bignum { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 56px; }
+.t-bignum .row { display: flex; gap: 160px; justify-content: center; }
+.t-bignum .col { text-align: center; min-width: 420px; }
+.t-bignum .gname { font-family: "Raleway", sans-serif; font-size: 42px; color: #dfe7e8; }
+.t-bignum .gname i { display: inline-block; width: 24px; height: 24px; border-radius: 50%; margin-right: 14px; vertical-align: 0; }
+.t-bignum .num { font-weight: 800; font-size: 190px; line-height: 1.05; color: #fff; font-variant-numeric: tabular-nums; margin-top: 10px; letter-spacing: -.02em; }
+.t-bignum .num small { font-size: 64px; font-weight: 400; color: #9fb3b9; margin-left: 18px; letter-spacing: 0; }
+.t-bignum .sub { font-family: "Raleway", sans-serif; font-size: 30px; color: #9fb3b9; margin-top: 6px; }
+.t-bignum .ans { background: #e8ea6e; color: #02151f; font-weight: 800; font-size: 36px; padding: 12px 34px; border-radius: 99px; transition: opacity .45s ease; }
+.t-bignum .ans.off { opacity: 0; }

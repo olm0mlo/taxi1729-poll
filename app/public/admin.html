@@ -246,6 +246,8 @@
               (q.data.answer != null ? '<span class="chip">Risposta esatta ' + esc(T.fmtNum(q.data.answer)) + '</span>' : '')
             : '<span class="chip">' + q.data.options.length + ' opzioni</span><span class="chip">' + (q.data.multi ? "Scelta multipla" : "Scelta singola") + '</span>' +
               '<span class="chip">' + chartName(q.data.chart) + '</span>') +
+          (q.data.titleB ? '<span class="chip">Due versioni: ' + esc(q.data.groupA) + ' / ' + esc(q.data.groupB) + '</span>' : '') +
+          (q.data.splitBy ? '<span class="chip">Separata per gruppi</span>' : '') +
           '<span class="chip">' + (q.data.reveal === "click" ? "Risultati su click" : "Risultati live") + '</span>' +
           (q.data.segmentBy ? '<span class="chip">Segmentata</span>' : '') + '<span class="chip yellow" id="votes-' + esc(q.id) + '">' + votesLabel(q.votes, q.sim) + '</span></div></div>' +
           '<div class="acts"><button class="btn ghost small" data-a="edit">Modifica</button><button class="btn ghost small" data-a="res">Risultati</button>' +
@@ -272,7 +274,7 @@
     }
     function siblingsBefore(q) {
       var list = state.questions, end = q ? list.indexOf(q) : list.length;
-      return list.slice(0, end).map(function (x, i) { return { id: x.id, pos: i + 1, title: x.data.title, multi: x.data.multi, kind: x.data.kind }; });
+      return list.slice(0, end).map(function (x, i) { return { id: x.id, pos: i + 1, title: x.data.title, multi: x.data.multi, kind: x.data.kind, variant: !!x.data.titleB }; });
     }
     function openEditor(q, anchor) {
       var card = document.createElement("div"); card.className = "card editor-card";

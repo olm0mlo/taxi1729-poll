@@ -106,7 +106,11 @@ function histogram(vals, d) {
     end = start + Math.min(nb, 40) * size;
   }
   const nb = Math.max(1, Math.min(60, Math.round((end - start) / size)));
-  end = start + nb * size;
+  return binValues(vals, start, size, nb, d);
+}
+// Conta i valori negli intervalli dati (usata anche per i gruppi, con gli stessi intervalli del totale)
+function binValues(vals, start, size, nb, d) {
+  const end = start + nb * size;
   const counts = Array(nb).fill(0);
   let under = 0, over = 0;
   for (const v of vals) {
@@ -115,6 +119,12 @@ function histogram(vals, d) {
     else counts[Math.min(nb - 1, Math.floor((v - start) / size + 1e-9))]++;
   }
   return { start, size, counts, under, over };
+}
+// Media, mediana, minimo e massimo di valori già ordinati
+function statsOf(vals) {
+  const n = vals.length;
+  if (!n) return null;
+  return { mean: vals.reduce((a, b) => a + b, 0) / n, median: n % 2 ? vals[(n - 1) / 2] : (vals[n / 2 - 1] + vals[n / 2]) / 2, min: vals[0], max: vals[n - 1] };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -126,6 +136,7 @@ export class Hub {
     this.migrate();
     this.qcache = new Map();      // domande lette di recente
     this.tallies = new Map();     // voti in memoria, per domanda: voter -> scelte
+    this.groupCache = new Map();  // gruppi delle domande con due versioni, per domanda: { map: voter -> 0/1, n: [quanti A, quanti B] }
     this.live = new Map();        // eventId -> stato della presentazione
     for (const r of this.all("SELECT * FROM live")) {
       this.live.set(r.event_id, { qid: r.question_id || null, since: r.since, userId: r.user_id, userName: r.user_name,
@@ -146,7 +157,9 @@ export class Hub {
       "CREATE TABLE IF NOT EXISTS questions (id TEXT PRIMARY KEY, event_id TEXT NOT NULL, pos INTEGER NOT NULL, data TEXT NOT NULL, created INTEGER NOT NULL, updated INTEGER NOT NULL)",
       "CREATE INDEX IF NOT EXISTS questions_event ON questions(event_id, pos)",
       "CREATE TABLE IF NOT EXISTS votes (question_id TEXT NOT NULL, voter TEXT NOT NULL, choices TEXT NOT NULL, created INTEGER NOT NULL, PRIMARY KEY (question_id, voter))",
-      "CREATE TABLE IF NOT EXISTS live (event_id TEXT PRIMARY KEY, question_id TEXT, since INTEGER, user_id TEXT, user_name TEXT, revealed INTEGER NOT NULL DEFAULT 0)"
+      "CREATE TABLE IF NOT EXISTS live (event_id TEXT PRIMARY KEY, question_id TEXT, since INTEGER, user_id TEXT, user_name TEXT, revealed INTEGER NOT NULL DEFAULT 0)",
+      // domande con due versioni: a quale gruppo (0 = A, 1 = B) è stato assegnato ogni telefono
+      "CREATE TABLE IF NOT EXISTS groups (question_id TEXT NOT NULL, voter TEXT NOT NULL, g INTEGER NOT NULL, PRIMARY KEY (question_id, voter))"
     ];
     for (const q of ddl) this.sql.exec(q);
     // v2: voti simulati (per provare la grafica), marcati a parte
@@ -197,9 +210,10 @@ export class Hub {
   // ----- pulizia dei dati delle domande -----
   cleanQuestion(d, eventId) {
     d = d || {};
-    if (d.kind === "cw") return this.cleanCrowd(d);
+    if (d.kind === "cw") return this.cleanCrowd(d, eventId);
     const o = { kind: "mc" };
     o.title = str(d.title, 300);
+    this.cleanVariant(d, o);
     let opts = Array.isArray(d.options) ? d.options.map(x => str(x, 140)) : [];
     if (opts.length < 2) fail(400, "Servono almeno 2 risposte");
     if (opts.length > MAX_OPTIONS) fail(400, `Al massimo ${MAX_OPTIONS} risposte`);
@@ -212,10 +226,20 @@ export class Hub {
       const b = this.getQ(d.segmentBy);
       if (b && b.eventId === eventId && !b.data.multi && b.data.kind !== "cw") o.segmentBy = b.id;
     }
+    if (o.titleB) o.segmentBy = null;     // i risultati sono già divisi per versione
     return o;
   }
+  // Due versioni della stessa domanda: metà del pubblico legge "title" (gruppo A), metà "titleB" (gruppo B).
+  // Sullo schermo compare solo "screenTitle", neutro, così nessuno vede la versione dell'altro gruppo.
+  cleanVariant(d, o) {
+    o.titleB = str(d.titleB, 300);
+    if (!o.titleB) { delete o.titleB; return; }
+    o.groupA = str(d.groupA, 40) || "Gruppo A";
+    o.groupB = str(d.groupB, 40) || "Gruppo B";
+    o.screenTitle = str(d.screenTitle, 160);
+  }
   // Crowd Wisdom: il pubblico scrive un numero (una stima), i risultati sono un istogramma.
-  cleanCrowd(d) {
+  cleanCrowd(d, eventId) {
     const num = (v) => { if (v === null || v === undefined || v === "") return null; const x = Number(v); return Number.isFinite(x) && Math.abs(x) < 1e12 ? x : null; };
     const o = { kind: "cw" };
     o.title = str(d.title, 300);
@@ -232,7 +256,38 @@ export class Hub {
     if (o.binStart !== null && o.binEnd !== null && o.binEnd <= o.binStart) fail(400, "Il valore finale dell'istogramma deve essere più grande di quello iniziale");
     o.reveal = d.reveal === "click" ? "click" : "live";
     o.chart = "hist";
+    // risultati separati per i gruppi di una domanda precedente con due versioni
+    o.splitBy = null;
+    if (typeof d.splitBy === "string" && d.splitBy) {
+      const b = this.getQ(d.splitBy);
+      if (b && b.eventId === eventId && b.data.titleB) o.splitBy = b.id;
+    }
+    this.cleanVariant(d, o);
     return o;
+  }
+
+  // ----- gruppi (domande con due versioni) -----
+  groupsOf(qid) {
+    let G = this.groupCache.get(qid);
+    if (G) return G;
+    G = { map: new Map(), n: [0, 0] };
+    for (const r of this.all("SELECT voter, g FROM groups WHERE question_id = ?", qid)) { G.map.set(r.voter, r.g); G.n[r.g]++; }
+    this.groupCache.set(qid, G);
+    return G;
+  }
+  // Gruppo di un telefono; se non ne ha ancora uno lo assegna al gruppo meno numeroso (così restano 50 e 50).
+  groupFor(qid, voter, create) {
+    const G = this.groupsOf(qid);
+    if (G.map.has(voter)) return G.map.get(voter);
+    if (!create) return null;
+    const g = G.n[0] === G.n[1] ? (Math.random() < 0.5 ? 0 : 1) : G.n[0] < G.n[1] ? 0 : 1;
+    G.map.set(voter, g); G.n[g]++;
+    this.run("INSERT OR IGNORE INTO groups (question_id, voter, g) VALUES (?, ?, ?)", qid, voter, g);
+    return g;
+  }
+  dropGroups(qid, simOnly) {
+    this.run("DELETE FROM groups WHERE question_id = ?" + (simOnly ? " AND voter LIKE 'sim-%'" : ""), qid);
+    this.groupCache.delete(qid);
   }
 
   // ----- voti e risultati -----
@@ -252,6 +307,13 @@ export class Hub {
     for (const ch of t.byVoter.values()) for (const i of ch) if (i >= 0 && i < n) counts[i]++;
     let sim = 0; for (const v of t.byVoter.keys()) if (v.startsWith("sim-")) sim++;
     const res = { t: "results", q: qid, total: t.byVoter.size, counts, sim };
+    if (q.data.titleB) {
+      // risultati divisi per versione della domanda
+      const G = this.groupsOf(qid), seg = [Array(n).fill(0), Array(n).fill(0), Array(n).fill(0)];
+      for (const [voter, ch] of t.byVoter) { const g = G.map.get(voter); const s = g === 0 || g === 1 ? g : 2; for (const i of ch) if (i >= 0 && i < n) seg[s][i]++; }
+      res.seg = { base: qid, variant: true, title: "Versione della domanda", labels: [q.data.groupA, q.data.groupB, "Senza gruppo"], counts: seg };
+      return res;
+    }
     const base = q.data.segmentBy ? this.getQ(q.data.segmentBy) : null;
     if (base) {
       const bt = this.tally(base.id), bn = base.data.options.length;
@@ -266,16 +328,27 @@ export class Hub {
   }
   crowdResults(q) {
     const t = this.tally(q.id), vals = [];
+    const base = q.data.splitBy ? this.getQ(q.data.splitBy) : null;
+    const G = base && base.data.titleB ? this.groupsOf(base.id) : null;
+    const byG = [[], [], []];
     let sim = 0;
-    for (const [v, ch] of t.byVoter) { if (v.startsWith("sim-")) sim++; if (typeof ch[0] === "number") vals.push(ch[0]); }
+    for (const [v, ch] of t.byVoter) {
+      if (v.startsWith("sim-")) sim++;
+      if (typeof ch[0] !== "number") continue;
+      vals.push(ch[0]);
+      if (G) { const g = G.map.get(v); byG[g === 0 || g === 1 ? g : 2].push(ch[0]); }
+    }
     vals.sort((a, b) => a - b);
-    const n = vals.length;
-    const stats = n ? {
-      mean: vals.reduce((a, b) => a + b, 0) / n,
-      median: n % 2 ? vals[(n - 1) / 2] : (vals[n / 2 - 1] + vals[n / 2]) / 2,
-      min: vals[0], max: vals[n - 1]
-    } : null;
-    return { t: "results", q: q.id, kind: "cw", total: t.byVoter.size, sim, stats, hist: histogram(vals, q.data) };
+    const hist = histogram(vals, q.data);
+    const res = { t: "results", q: q.id, kind: "cw", total: t.byVoter.size, sim, stats: statsOf(vals), hist };
+    if (G) {
+      // stessi intervalli per tutti i gruppi, così i due istogrammi sono confrontabili
+      res.groups = [0, 1, 2].map((g) => {
+        const vs = byG[g].sort((a, b) => a - b);
+        return { label: g === 2 ? "Senza gruppo" : g ? base.data.groupB : base.data.groupA, total: vs.length, stats: statsOf(vs), hist: binValues(vs, hist.start, hist.size, hist.counts.length, q.data) };
+      });
+    }
+    return res;
   }
   markDirty(qid) {
     this.dirty.add(qid);
@@ -301,7 +374,7 @@ export class Hub {
     const base = q.data.segmentBy ? this.getQ(q.data.segmentBy) : null;
     const bn = base ? base.data.options.length : 0;
     const mkW = () => Array.from({ length: n }, () => 0.2 + Math.random() ** 1.5);   // alcune risposte più popolari di altre
-    const weights = base ? Array.from({ length: bn }, mkW) : [mkW()];
+    const weights = base ? Array.from({ length: bn }, mkW) : q.data.titleB ? [mkW(), mkW()] : [mkW()];
     const baseW = base ? Array.from({ length: bn }, () => 0.25 + Math.random()) : null;
     const pick = (ws) => { let r = Math.random() * ws.reduce((a, b) => a + b, 0); for (let i = 0; i < ws.length; i++) { r -= ws[i]; if (r <= 0) return i; } return ws.length - 1; };
     const baseVoters = base ? [...this.tally(base.id).byVoter.entries()].filter(([v]) => v.startsWith("sim-")) : [];
@@ -325,7 +398,8 @@ export class Hub {
             this.tally(base.id).byVoter.set(voter, [seg]); this.markDirty(base.id);
           }
         } else voter = "sim-" + rid(10);
-        const ws = weights[seg];
+        if (q.data.titleB) seg = this.groupFor(q.id, voter, true);     // domanda con due versioni: ogni gruppo vota a modo suo
+        const ws = weights[Math.min(seg, weights.length - 1)];
         let choices;
         if (q.data.multi) {
           const mx = Math.max(...ws);
@@ -357,6 +431,11 @@ export class Hub {
       if (d.max !== null) x = Math.min(d.max, x);
       return d.decimals ? Math.round(x * 10) / 10 : Math.round(x);
     };
+    // risultati separati per gruppi: si riusano i votanti simulati della domanda con due versioni, e il gruppo B
+    // (di solito quello con il valore di riferimento più alto) stima un po' di più, come nell'effetto ancoraggio
+    const base = d.splitBy ? this.getQ(d.splitBy) : null;
+    const baseVoters = base ? [...this.groupsOf(base.id).map.keys()].filter((v) => v.startsWith("sim-")) : [];
+    let bi = 0;
     const perTick = seconds > 0 ? Math.max(1, Math.ceil(count / (seconds * 4))) : count;
     const job = { made: 0, total: count, timer: null };
     this.sims.set(q.id, job);
@@ -366,7 +445,15 @@ export class Hub {
       if (!L || L.qid !== q.id) { this.stopSim(q.id); return; }
       const t = this.tally(q.id), now = Date.now();
       for (let k = 0; k < perTick && job.made < job.total; k++) {
-        const voter = "sim-" + rid(10), v = [one()];
+        let voter;
+        if (base) {
+          while (bi < baseVoters.length && t.byVoter.has(baseVoters[bi])) bi++;
+          voter = bi < baseVoters.length ? baseVoters[bi++] : "sim-" + rid(10);
+        } else voter = "sim-" + rid(10);
+        const g = base ? this.groupFor(base.id, voter, true) : 0;
+        let x = one();
+        if (g === 1) { x = x * 2.2; if (d.max !== null) x = Math.min(d.max, x); x = d.decimals ? Math.round(x * 10) / 10 : Math.round(x); }
+        const v = [x];
         this.run("INSERT OR IGNORE INTO votes (question_id, voter, choices, created, sim) VALUES (?, ?, ?, ?, 1)", q.id, voter, JSON.stringify(v), now);
         t.byVoter.set(voter, v); job.made++;
       }
@@ -382,7 +469,7 @@ export class Hub {
   }
 
   clearVotes(qids) {
-    for (const id of qids) { this.run("DELETE FROM votes WHERE question_id = ?", id); this.tallies.delete(id); this.markDirty(id); }
+    for (const id of qids) { this.run("DELETE FROM votes WHERE question_id = ?", id); this.dropGroups(id); this.tallies.delete(id); this.markDirty(id); }
   }
 
   // ----- stato della presentazione -----
@@ -399,11 +486,13 @@ export class Hub {
   audienceState(eventId, voter) {
     const L = this.live.get(eventId);
     const q = L && L.qid ? this.getQ(L.qid) : null;
+    // domanda con due versioni: ogni telefono legge quella del suo gruppo
+    const title = q ? (q.data.titleB && voter && this.groupFor(q.id, voter, true) === 1 ? q.data.titleB : q.data.title) : "";
     return {
       t: "state",
       q: q ? (q.data.kind === "cw"
-        ? { id: q.id, kind: "cw", title: q.data.title, unit: q.data.unit, decimals: q.data.decimals, min: q.data.min, max: q.data.max, error: q.data.error }
-        : { id: q.id, title: q.data.title, options: q.data.options, multi: !!q.data.multi }) : null,
+        ? { id: q.id, kind: "cw", title: title, unit: q.data.unit, decimals: q.data.decimals, min: q.data.min, max: q.data.max, error: q.data.error }
+        : { id: q.id, title: title, options: q.data.options, multi: !!q.data.multi }) : null,
       voted: q ? this.tally(q.id).byVoter.has(voter) : false
     };
   }
@@ -542,7 +631,7 @@ export class Hub {
       }
       if (!p[2] && m === "DELETE") {
         const qids = this.eventQuestions(ev.id).map(q => q.id);
-        for (const id of qids) { this.run("DELETE FROM votes WHERE question_id = ?", id); this.tallies.delete(id); this.qcache.delete(id); }
+        for (const id of qids) { this.run("DELETE FROM votes WHERE question_id = ?", id); this.dropGroups(id); this.tallies.delete(id); this.qcache.delete(id); }
         this.run("DELETE FROM questions WHERE event_id = ?", ev.id);
         this.live.delete(ev.id); this.saveLive(ev.id);
         this.run("DELETE FROM events WHERE id = ?", ev.id);
@@ -571,7 +660,7 @@ export class Hub {
       if (p[2] === "simvotes" && m === "DELETE") {
         for (const q of this.eventQuestions(ev.id)) {
           this.stopSim(q.id);
-          this.run("DELETE FROM votes WHERE question_id = ? AND sim = 1", q.id);
+          this.run("DELETE FROM votes WHERE question_id = ? AND sim = 1", q.id); this.dropGroups(q.id, true);
           this.tallies.delete(q.id); this.markDirty(q.id);
         }
         return json({ ok: true });
@@ -597,7 +686,7 @@ export class Hub {
       }
       if (!p[2] && m === "DELETE") {
         this.stopSim(q.id);
-        this.run("DELETE FROM votes WHERE question_id = ?", q.id);
+        this.run("DELETE FROM votes WHERE question_id = ?", q.id); this.dropGroups(q.id);
         this.run("DELETE FROM questions WHERE id = ?", q.id);
         this.tallies.delete(q.id); this.qcache.delete(q.id); this.touch(q.eventId);
         return json({ ok: true });
@@ -658,18 +747,25 @@ export class Hub {
 
   exportCsv(ev) {
     const rows = [["Evento", "Domanda n.", "Domanda", "Risposta", "Voti", "Percentuale", "Partecipanti alla domanda"]];
-    const crowd = [["Evento", "Domanda n.", "Domanda", "Stima"]];
+    const crowd = [["Evento", "Domanda n.", "Domanda", "Stima", "Gruppo"]];
     const dec = (x) => String(Math.round(x * 100) / 100).replace(".", ",");
     for (const q of this.eventQuestions(ev.id)) {
       if (q.data.kind === "cw") {
-        const vals = this.all("SELECT choices FROM votes WHERE question_id = ? AND sim = 0", q.id).map(v => JSON.parse(v.choices)[0]).filter(x => typeof x === "number").sort((a, b) => a - b);
-        const n = vals.length, title = q.data.title || "(senza testo)";
-        const stat = (lab, x) => rows.push([ev.name, q.pos, title, lab, x === null ? "" : dec(x), "", n]);
-        stat("Mediana", n ? (n % 2 ? vals[(n - 1) / 2] : (vals[n / 2 - 1] + vals[n / 2]) / 2) : null);
-        stat("Media", n ? vals.reduce((a, b) => a + b, 0) / n : null);
-        stat("Minimo", n ? vals[0] : null); stat("Massimo", n ? vals[n - 1] : null);
-        if (q.data.answer !== null && q.data.answer !== undefined) stat("Risposta esatta", q.data.answer);
-        for (const x of vals) crowd.push([ev.name, q.pos, title, dec(x)]);
+        const base = q.data.splitBy ? this.getQ(q.data.splitBy) : null;
+        const G = base && base.data.titleB ? this.groupsOf(base.id) : null;
+        const gName = (voter) => { if (!G) return ""; const g = G.map.get(voter); return g === 0 ? base.data.groupA : g === 1 ? base.data.groupB : "Senza gruppo"; };
+        const rowsV = this.all("SELECT voter, choices FROM votes WHERE question_id = ? AND sim = 0", q.id)
+          .map(v => ({ x: JSON.parse(v.choices)[0], g: gName(v.voter) })).filter(r => typeof r.x === "number").sort((a, b) => a.x - b.x);
+        const title = q.data.title || "(senza testo)";
+        const block = (suffix, vals) => {
+          const n = vals.length, st = statsOf(vals);
+          const stat = (lab, x) => rows.push([ev.name, q.pos, title, lab + suffix, x === null || x === undefined ? "" : dec(x), "", n]);
+          stat("Mediana", st && st.median); stat("Media", st && st.mean); stat("Minimo", st && st.min); stat("Massimo", st && st.max);
+        };
+        block("", rowsV.map(r => r.x));
+        if (G) for (const name of [base.data.groupA, base.data.groupB]) block(` (${name})`, rowsV.filter(r => r.g === name).map(r => r.x));
+        if (q.data.answer !== null && q.data.answer !== undefined) rows.push([ev.name, q.pos, title, "Risposta esatta", dec(q.data.answer), "", ""]);
+        for (const r of rowsV) crowd.push([ev.name, q.pos, title, dec(r.x), r.g]);
         continue;
       }
       // conteggi dai soli voti veri (i simulati sono esclusi)
@@ -677,10 +773,21 @@ export class Hub {
       for (const v of this.all("SELECT choices FROM votes WHERE question_id = ? AND sim = 0", q.id)) {
         r.total++; for (const i of JSON.parse(v.choices)) if (i >= 0 && i < n) r.counts[i]++;
       }
+      const pctS = (c, tot) => tot ? (Math.round(c / tot * 1000) / 10).toString().replace(".", ",") + "%" : "0%";
       q.data.options.forEach((o, i) => {
-        rows.push([ev.name, q.pos, q.data.title || "(senza testo)", o || `Opzione ${i + 1}`, r.counts[i],
-          r.total ? (Math.round(r.counts[i] / r.total * 1000) / 10).toString().replace(".", ",") + "%" : "0%", r.total]);
+        rows.push([ev.name, q.pos, q.data.title || "(senza testo)", o || `Opzione ${i + 1}`, r.counts[i], pctS(r.counts[i], r.total), r.total]);
       });
+      if (q.data.titleB) {
+        // domanda con due versioni: risultati anche per gruppo, ciascuno con il testo che ha letto
+        const G = this.groupsOf(q.id);
+        const vv = this.all("SELECT voter, choices FROM votes WHERE question_id = ? AND sim = 0", q.id);
+        [0, 1].forEach((g) => {
+          const mine = vv.filter(v => G.map.get(v.voter) === g), c = Array(n).fill(0);
+          for (const v of mine) for (const i of JSON.parse(v.choices)) if (i >= 0 && i < n) c[i]++;
+          q.data.options.forEach((o, i) => rows.push([ev.name, q.pos, (g ? q.data.titleB : q.data.title) + ` [${g ? q.data.groupB : q.data.groupA}]`,
+            o || `Opzione ${i + 1}`, c[i], pctS(c[i], mine.length), mine.length]));
+        });
+      }
     }
     const all = crowd.length > 1 ? rows.concat([[], ["Stime delle domande Crowd Wisdom (una riga per risposta)"]], crowd) : rows;
     const csv = "﻿" + all.map(r => r.map(csvCell).join(";")).join("\r\n");

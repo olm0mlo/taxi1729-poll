@@ -13,7 +13,8 @@
       title: d.title || "", options: (d.options && d.options.length >= 2) ? d.options.slice() : ["", ""],
       multi: !!d.multi, chart: d.chart && d.chart !== "hist" ? d.chart : "bar", reveal: d.reveal || "live", segmentBy: d.segmentBy || ""
     };
-    var siblings = (opts.siblings || []).filter(function (q) { return !q.multi && q.kind !== "cw"; });
+    var siblings = (opts.siblings || []).filter(function (q) { return !q.multi && q.kind !== "cw" && !q.variant; });
+    var variantSibs = (opts.siblings || []).filter(function (q) { return q.variant; });
     var esc = T.esc;
     var numTxt = function (x) { return x === null || x === undefined ? "" : T.fmtNum(x, 6); };
 
@@ -24,6 +25,17 @@
       '  <label><input type="radio" name="qe-kind-' + n + '" value="cw">Crowd Wisdom (stima numerica)</label></div>' +
       '<label class="lbl" for="qe-title-' + n + '">Domanda <span class="muted qe-optional" style="font-weight:400">(facoltativa)</span></label>' +
       '<input type="text" id="qe-title-' + n + '" maxlength="300" placeholder="Es. Quanto conosci la comunicazione scientifica?">' +
+      // ---- due versioni (metà del pubblico ciascuna)
+      '<label class="check"><input type="checkbox" class="v-on"> Due versioni della domanda (metà del pubblico legge la prima, metà la seconda)</label>' +
+      '<div class="v-box" style="border-left:3px solid var(--yellow);padding:2px 0 4px 14px;margin-top:8px">' +
+      '  <div class="qe-row"><div style="flex:1;min-width:240px"><label class="lbl">Seconda versione (gruppo B)</label><input type="text" class="v-titleb" maxlength="300" placeholder="Es. …più alto o più basso di 1000 metri?"></div></div>' +
+      '  <div class="qe-row">' +
+      '    <div><label class="lbl">Nome del gruppo A</label><input type="text" class="v-ga" maxlength="40" style="width:190px" placeholder="Gruppo A"></div>' +
+      '    <div><label class="lbl">Nome del gruppo B</label><input type="text" class="v-gb" maxlength="40" style="width:190px" placeholder="Gruppo B"></div>' +
+      '    <div style="flex:1;min-width:240px"><label class="lbl">Titolo sulla slide (uguale per tutti)</label><input type="text" class="v-screen" maxlength="160" placeholder="Rispondi sul tuo telefono"></div>' +
+      '  </div>' +
+      '  <div class="hint">Ogni telefono riceve una delle due versioni, metà e metà, e la conserva anche se si ricollega. Sullo schermo compare solo il titolo neutro, così nessuno vede la versione dell\'altro gruppo. I nomi dei gruppi compaiono nei grafici.</div>' +
+      '</div>' +
 
       // ---- scelta multipla
       '<div class="qe-mc">' +
@@ -68,6 +80,9 @@
       '  <div><label class="lbl">Risposta esatta <span class="muted" style="font-weight:400">(facoltativa)</span></label><input type="text" inputmode="decimal" class="cw-answer" style="width:160px">' +
       '    <div class="hint" style="max-width:320px">Linea gialla sul grafico, visibile solo nelle slide in cui scegli di mostrarla (nell\'add-in o con il tasto A nel browser).</div></div>' +
       '</div>' +
+      '<label class="lbl" for="qe-split-' + n + '">Separa per gruppi</label>' +
+      '<select id="qe-split-' + n + '"></select>' +
+      '<div class="hint">Mostra i risultati divisi tra i due gruppi di una domanda precedente con due versioni (per esempio per l\'effetto ancoraggio).</div>' +
       '<label class="lbl">Colonne dell\'istogramma</label><div class="seg">' +
       '  <label><input type="radio" name="qe-bins-' + n + '" value="auto">Automatiche</label>' +
       '  <label><input type="radio" name="qe-bins-' + n + '" value="manual">Personalizzate</label></div>' +
@@ -99,6 +114,16 @@
     seg.value = siblings.some(function (q) { return q.id === data.segmentBy; }) ? data.segmentBy : "";
     if (!siblings.length) { seg.disabled = true; seg.options[0].textContent = "Nessuna domanda precedente a risposta singola"; }
 
+    var split = $("#qe-split-" + n);
+    split.innerHTML = '<option value="">Nessuna separazione</option>' + variantSibs.map(function (q) {
+      return '<option value="' + esc(q.id) + '">' + esc((q.pos ? q.pos + ". " : "") + (q.title || "(domanda senza testo)")) + '</option>';
+    }).join("");
+    split.value = variantSibs.some(function (q) { return q.id === d.splitBy; }) ? d.splitBy : "";
+    if (!variantSibs.length) { split.disabled = true; split.options[0].textContent = "Nessuna domanda precedente con due versioni"; }
+    $(".v-on").checked = !!d.titleB;
+    $(".v-titleb").value = d.titleB || ""; $(".v-ga").value = d.titleB ? d.groupA || "" : ""; $(".v-gb").value = d.titleB ? d.groupB || "" : "";
+    $(".v-screen").value = d.titleB ? d.screenTitle || "" : "";
+    $(".v-on").addEventListener("change", function () { sync(); });
     function setRadio(name, v) { var r = container.querySelector('input[name="' + name + '"][value="' + v + '"]'); if (r) r.checked = true; }
     function getRadio(name) { var r = container.querySelector('input[name="' + name + '"]:checked'); return r ? r.value : null; }
     setRadio("qe-kind-" + n, isCw ? "cw" : "mc");
@@ -142,7 +167,11 @@
       var cw = getRadio("qe-kind-" + n) === "cw";
       $(".qe-mc").classList.toggle("hidden", cw);
       $(".qe-cw").classList.toggle("hidden", !cw);
-      $(".qe-optional").classList.toggle("hidden", cw);
+      var vOn = $(".v-on").checked;
+      $(".v-box").classList.toggle("hidden", !vOn);
+      $(".qe-optional").classList.toggle("hidden", cw || vOn);
+      title.previousElementSibling.firstChild.textContent = vOn ? "Prima versione (gruppo A) " : "Domanda ";
+      seg.disabled = vOn || !siblings.length;
       title.placeholder = cw ? "Es. Quanti fagioli ci sono nel barattolo?" : "Es. Quanto conosci la comunicazione scientifica?";
       var man = getRadio("qe-bins-" + n) === "manual";
       $(".cw-binrow").classList.toggle("hidden", !man);
@@ -177,6 +206,9 @@
 
     function collect() {
       var reveal = getRadio("qe-rev-" + n) || "live";
+      var variant = $(".v-on").checked ? { titleB: $(".v-titleb").value.trim(), groupA: $(".v-ga").value.trim(), groupB: $(".v-gb").value.trim(), screenTitle: $(".v-screen").value.trim() } : { titleB: "" };
+      if ($(".v-on").checked && (!variant.titleB || !title.value.trim())) throw new Error("Con due versioni servono entrambi i testi della domanda.");
+      function withV(o) { for (var k in variant) o[k] = variant[k]; return o; }
       if (getRadio("qe-kind-" + n) === "cw") {
         var man = getRadio("qe-bins-" + n) === "manual";
         var o = {
@@ -185,17 +217,18 @@
           unit: $(".cw-unit").value.trim(), error: $(".cw-error").value.trim(),
           line: getRadio("qe-line-" + n) || "median", answer: numField(".cw-answer", "Risposta esatta"),
           binStart: man ? numField(".cw-bstart", "Colonne da") : null, binEnd: man ? numField(".cw-bend", "Colonne a") : null,
-          binSize: man ? numField(".cw-bsize", "Larghezza delle colonne") : null, reveal: reveal
+          binSize: man ? numField(".cw-bsize", "Larghezza delle colonne") : null, reveal: reveal, splitBy: split.value || null
         };
+        withV(o);
         if (man && (o.binStart === null || o.binEnd === null || o.binSize === null)) throw new Error("Per le colonne personalizzate compila Da, A e Ogni colonna vale.");
         if (man && (o.binEnd - o.binStart) / o.binSize > 60) throw new Error("Troppe colonne: al massimo 60. Aumenta il valore di ogni colonna.");
         return o;
       }
-      return {
+      return withV({
         kind: "mc", title: title.value.trim(), options: data.options.map(function (o) { return o.trim(); }),
         multi: getRadio("qe-multi-" + n) === "1", chart: getRadio("qe-chart-" + n) || "bar",
-        reveal: reveal, segmentBy: seg.value || null
-      };
+        reveal: reveal, segmentBy: $(".v-on").checked ? null : (seg.value || null)
+      });
     }
     save.onclick = function () {
       var out;

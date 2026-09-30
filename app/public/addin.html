@@ -63,6 +63,7 @@
     chart: "",                      // grafico di questa slide ("" = quello della domanda)
     answer: "hidden",               // Crowd Wisdom: risposta esatta in questa slide nascosta o visibile
     content: "results",             // Crowd Wisdom: questa slide mostra la domanda ("question") o i risultati
+    splitView: "hist",              // Crowd Wisdom separato per gruppi: "hist" (due istogrammi) o "numbers" (solo i numeri)
     slideId: null, slideIndex: null, fitted: false, debug: false
   };
   var KEYS = Object.keys(S);
@@ -202,6 +203,7 @@
     slide.setChartOverride(S.chart || null);
     slide.setAnswerVisible(S.answer === "shown");
     slide.setQuestionOnly(S.content === "question");
+    slide.setSplitView(S.splitView);
     if (S.kind === "welcome") slide.setWelcome(S.welcomeTitle);
     else if (S.snapshot) {
       slide.setQuestion(Object.assign({ id: S.questionId }, S.snapshot), S.number);
@@ -334,6 +336,12 @@
             '<label><input type="radio" name="cont" value="results"' + (S.content !== "question" ? " checked" : "") + '>Mostra risultati</label></div>' +
             '<div class="hint">Per far comparire i risultati premendo avanti: qui scegli <b>Mostra domanda</b>, poi <b>duplica la slide</b> e nella copia scegli <b>Mostra risultati</b>. Il pubblico può votare in entrambe.</div>';
         }
+        if (S.snapshot && S.snapshot.kind === "cw" && S.snapshot.splitBy && !missing && S.content !== "question") {
+          html += '<label class="lbl">Gruppi in questa slide</label><div class="seg">' +
+            '<label><input type="radio" name="spv" value="hist"' + (S.splitView !== "numbers" ? " checked" : "") + '>Due istogrammi</label>' +
+            '<label><input type="radio" name="spv" value="numbers"' + (S.splitView === "numbers" ? " checked" : "") + '>Solo i numeri</label></div>' +
+            '<div class="hint">Per lo "svelamento": duplica la slide e nella copia scegli <b>Solo i numeri</b>.</div>';
+        }
         if (S.snapshot && S.snapshot.kind === "cw" && S.snapshot.answer != null && !missing && S.content !== "question") {
           html += '<label class="lbl">Risposta esatta in questa slide</label><div class="seg">' +
             '<label><input type="radio" name="ans" value="hidden"' + (S.answer !== "shown" ? " checked" : "") + '>Nascosta</label>' +
@@ -376,7 +384,7 @@
       r.onchange = function () { S.kind = r.value; saveSettings(); drawEditor(); };
     });
     if ($("selQ")) $("selQ").onchange = function () {
-      S.questionId = this.value || null; missing = false; copyNotice = false; S.results = "hidden"; S.chart = ""; S.answer = "hidden"; S.content = "results";
+      S.questionId = this.value || null; missing = false; copyNotice = false; S.results = "hidden"; S.chart = ""; S.answer = "hidden"; S.content = "results"; S.splitView = "hist";
       var q = questions.find(function (x) { return x.id === S.questionId; });
       S.snapshot = q ? q.data : null; S.number = q ? q.pos : 1; lastResults = null;
       saveSettings(); drawEditor();
@@ -393,6 +401,9 @@
     if ($("bAnsSlide")) $("bAnsSlide").onclick = function () { S.answer = "shown"; S.results = "shown"; copyNotice = false; saveSettings(); drawEditor(); };
     Array.prototype.forEach.call(document.querySelectorAll('input[name="ans"]'), function (r) {
       r.onchange = function () { S.answer = r.value; saveSettings(); drawMini(); };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('input[name="spv"]'), function (r) {
+      r.onchange = function () { S.splitView = r.value; saveSettings(); drawMini(); };
     });
     Array.prototype.forEach.call(document.querySelectorAll('input[name="cont"]'), function (r) {
       r.onchange = function () { S.content = r.value; saveSettings(); drawEditor(); };
@@ -418,6 +429,7 @@
     mini.setChartOverride(S.chart || null);
     mini.setAnswerVisible(S.answer === "shown");
     mini.setQuestionOnly(S.content === "question");
+    mini.setSplitView(S.splitView);
     if (S.kind === "welcome") mini.setWelcome(S.welcomeTitle);
     else if (S.snapshot) { mini.setQuestion(Object.assign({ id: S.questionId }, S.snapshot), S.number); mini.setRevealed(isRevealed()); }
     else mini.setWelcome(S.eventId ? "Scegli o crea una domanda" : "Scegli un evento");
@@ -427,7 +439,7 @@
     var ed = $("editor");
     var cur = editing.isNew ? null : questions.find(function (q) { return q.id === S.questionId; });
     var idx = cur ? questions.indexOf(cur) : questions.length;
-    var siblings = questions.slice(0, idx).map(function (q, i) { return { id: q.id, pos: i + 1, title: q.data.title, multi: q.data.multi, kind: q.data.kind }; });
+    var siblings = questions.slice(0, idx).map(function (q, i) { return { id: q.id, pos: i + 1, title: q.data.title, multi: q.data.multi, kind: q.data.kind, variant: !!q.data.titleB }; });
     ed.innerHTML = '<div class="card panel"><h3>' + (editing.isNew ? "Nuova domanda" : "Modifica domanda") + '</h3>' +
       (editing.isNew ? '' : '<div class="hint">Le modifiche valgono ovunque la domanda è usata: pannello web e altre slide.</div>') + '<div id="qeBox"></div></div>';
     T.QuestionEditor($("qeBox"), {

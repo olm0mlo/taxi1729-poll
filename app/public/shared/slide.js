@@ -77,7 +77,7 @@
     var logo = h("img", "t-logo"); logo.src = "/assets/logo-negativo.png"; logo.alt = "Taxi1729"; canvas.appendChild(logo);
     var notice = h("div", "t-notice hidden"); canvas.appendChild(notice);
 
-    var st = { mode: "question", code: null, eventName: "", q: null, number: 1, res: null, revealed: false, welcomeTitle: "", chartOverride: null, armed: false, answer: false, qonly: false };
+    var st = { mode: "question", code: null, eventName: "", q: null, number: 1, res: null, revealed: false, welcomeTitle: "", chartOverride: null, armed: false, answer: false, qonly: false, split: "hist" };
     var view = null;             // grafico attualmente disegnato
     var pendingIntro = 0;        // animazione di comparsa richiesta prima che arrivassero i risultati
 
@@ -121,7 +121,8 @@
       var cw = q.kind === "cw", qonly = cw && st.qonly, noTitle = cw && !q.showTitle && !qonly;
       stage.classList.toggle("qonly", qonly);
       chart.classList.toggle("hidden", qonly);
-      var tt = noTitle ? "" : (q.title || "");
+      // domanda con due versioni: sullo schermo solo il titolo neutro, uguale per tutti
+      var tt = noTitle ? "" : q.titleB ? (q.screenTitle || "Rispondi sul tuo telefono") : (q.title || "");
       if (title.textContent !== tt) title.textContent = tt;
       title.className = "t-title" + (tt.length > 110 ? " s" : tt.length > 60 ? " m" : "") + (tt ? "" : " hidden");
       var res = currentRes();
@@ -131,7 +132,8 @@
       // il grafico parte sempre sotto il QR e il suo codice (in alto a destra)…
       chart.style.marginTop = "0px"; chart.style.marginRight = "0px";
       if (qonly) { chart.innerHTML = ""; view = null; return; }   // Crowd Wisdom "mostra domanda": solo il testo
-      if (noTitle) {
+      if (noTitle && q.splitBy && st.split === "numbers") chart.style.marginTop = "44px";   // numeri grandi: centrati nella slide
+      else if (noTitle) {
         // …tranne il Crowd Wisdom senza domanda scritta: sale subito sotto il nome dell'evento, a fianco del QR
         chart.style.marginTop = "44px"; chart.style.marginRight = "250px";
       } else {
@@ -145,9 +147,12 @@
     function drawChart(q, res) {
       var hidden = q.reveal === "click" && !st.revealed;
       if (q.kind === "cw") {
-        var tp = hidden ? "hidden" : "hist";
-        var k2 = [tp, q.id, q.line, q.answer, q.decimals, chart.clientWidth, chart.clientHeight].join("|");
-        if (!view || view.key !== k2) { chart.innerHTML = ""; view = (hidden ? hiddenView : histView)(q); view.key = k2; }
+        var tp = hidden ? "hidden" : q.splitBy ? (st.split === "numbers" ? "bignum" : "hsplit") : "hist";
+        var k2 = [tp, q.id, q.line, q.answer, q.decimals, q.unit, chart.clientWidth, chart.clientHeight].join("|");
+        if (!view || view.key !== k2) {
+          chart.innerHTML = "";
+          view = (tp === "hidden" ? hiddenView : tp === "bignum" ? bigNumView : tp === "hsplit" ? histSplitView : histView)(q); view.key = k2;
+        }
         view.update(q, res);
         if (st.armed && view.arm) view.arm();
         if (pendingIntro && res && Date.now() - pendingIntro < 2500) { pendingIntro = 0; view.intro && view.intro(q, res); }
@@ -185,7 +190,9 @@
         var used = seg.counts[si].some(function (x) { return x > 0; });
         var isNone = si === seg.labels.length - 1;
         if (isNone && !used) return;
-        items.push({ label: isNone ? l : T.optLabel(l, si), color: isNone ? NONE_COLOR : PALETTE[si % PALETTE.length], si: si });
+        // domanda con due versioni: gli stessi colori dei gruppi usati negli istogrammi separati
+        var color = isNone ? NONE_COLOR : seg.variant ? GROUP_COLORS[si][0] : PALETTE[si % PALETTE.length];
+        items.push({ label: isNone ? l : T.optLabel(l, si), color: color, si: si });
       });
       return items;
     }
@@ -338,12 +345,17 @@
     // Blocchi affiancati con un filo di spazio; le stime fuori scala stanno in colonne separate ("sotto…"/"oltre…").
     // Sopra il grafico le etichette della linea (mediana o media, tratteggiata) e della risposta esatta (gialla):
     // se si toccherebbero, si aprono "a bandiera" in direzioni opposte, e se non basta vanno su due righe.
-    function histView(q) {
-      var box = h("div", "t-hist"); chart.appendChild(box);
-      var W = chart.clientWidth, H = chart.clientHeight;
+    // o (facoltativo, per i due istogrammi dei gruppi): host, W, H, color, side, pick(res) -> {hist, stats} del gruppo,
+    // shape(res) -> {u, o} colonne laterali da mostrare comunque (così i due grafici hanno lo stesso asse),
+    // label(res) -> {text, color} nome del gruppo in alto a sinistra
+    function histView(q, o) {
+      o = o || {};
+      var box = h("div", "t-hist"); (o.host || chart).appendChild(box);
+      var W = o.W || chart.clientWidth, H = o.H || chart.clientHeight;
       var PILL_H = 50, topH = PILL_H + 26, axisH = 60, baseY = H - axisH, plotH = baseY - topH;
-      var MAIN = "#7fa6ad", SIDE = "#46666d", EASE = BAR_EASE;
-      var struct = "", bars = [], g = null, stat = null, ans = null, answerOn = false, lastRes = null;
+      var MAIN = o.color || "#7fa6ad", SIDE = o.side || "#46666d", EASE = BAR_EASE;
+      var struct = "", bars = [], g = null, stat = null, ans = null, answerOn = false, lastRes = null, labEl = null, labW = 0;
+      var sub = function (res) { return o.pick ? o.pick(res) : res; };
       var dec = function (x, d) { return T.fmtNum(x, d); };
 
       function mkLine(cls) {
@@ -351,9 +363,11 @@
         box.appendChild(ln); box.appendChild(pill);
         return { ln: ln, pill: pill, x: null, shown: false };
       }
-      function build(hist) {
+      function build(hist, shape) {
         box.innerHTML = ""; bars = [];
-        var nb = hist.counts.length, hasU = hist.under > 0, hasO = hist.over > 0, sides = (hasU ? 1 : 0) + (hasO ? 1 : 0), sep = 34;
+        labEl = null; labW = 0;
+        if (o.label) { labEl = h("div", "glab"); box.appendChild(labEl); }
+        var nb = hist.counts.length, hasU = hist.under > 0 || shape.u, hasO = hist.over > 0 || shape.o, sides = (hasU ? 1 : 0) + (hasO ? 1 : 0), sep = 34;
         var bw0 = (W - sides * sep) / (nb + sides), sideW = Math.max(80, Math.min(150, bw0));
         var bw = Math.min(190, (W - sides * (sep + sideW)) / nb);
         var totalW = nb * bw + sides * (sep + sideW), x0 = (W - totalW) / 2;
@@ -393,7 +407,7 @@
       function placeLabels() {
         var items = [stat, ans].filter(function (it) { return it && it.shown && it.x != null; });
         items.forEach(function (it) { it.pill.classList.remove("fl", "fr"); it.w = it.pill.offsetWidth || 260; it.left = it.x - it.w / 2; it.row = 0; });
-        var clamp = function (it) { it.left = Math.max(0, Math.min(W - it.w, it.left)); };
+        var clamp = function (it) { it.left = Math.max(labW, Math.min(W - it.w, it.left)); };
         items.forEach(clamp);
         if (items.length === 2) {
           var a = items[0].x <= items[1].x ? items[0] : items[1], b = a === items[0] ? items[1] : items[0], M = 14;
@@ -403,7 +417,7 @@
             a.pill.classList.add("fl"); b.pill.classList.add("fr");
             a.w = a.pill.offsetWidth || a.w; b.w = b.pill.offsetWidth || b.w;
             a.left = a.x - a.w + 2; b.left = b.x - 2;
-            if (a.left < 0 || b.left + b.w > W || a.left + a.w + 4 > b.left) {       // non c'è spazio: due righe
+            if (a.left < labW || b.left + b.w > W || a.left + a.w + 4 > b.left) {       // non c'è spazio: due righe
               a.pill.classList.remove("fl"); b.pill.classList.remove("fr");
               a.w = a.pill.offsetWidth || a.w; b.w = b.pill.offsetWidth || b.w;
               a.left = a.x - a.w / 2; b.left = b.x - b.w / 2; clamp(a); clamp(b);
@@ -417,8 +431,13 @@
           it.ln.style.left = (it.x - 2) + "px"; it.ln.style.top = top + "px"; it.ln.style.height = Math.max(0, baseY - top) + "px";   // la linea parte dall'etichetta (asta della bandiera)
         });
       }
-      function setLines(res, animate) {
-        var ok = res && res.stats;
+      function setLines(full) {
+        var res = sub(full), ok = res && res.stats;
+        if (labEl) {
+          var L = o.label(full); labEl.innerHTML = "";
+          var dot = h("i"); dot.style.background = L.color; labEl.appendChild(dot); labEl.appendChild(document.createTextNode(L.text));
+          labW = labEl.offsetWidth + 28;
+        }
         if (stat) {
           var v = ok ? (q.line === "mean" ? res.stats.mean : res.stats.median) : null;
           stat.shown = v != null; stat.x = v != null ? xOf(v) : null;
@@ -437,11 +456,11 @@
         fn(); void box.offsetWidth;
         Array.prototype.forEach.call(els, function (e) { e.style.transition = ""; });
       }
-      function structKey(hist) { return [hist.start, hist.size, hist.counts.length, hist.under > 0, hist.over > 0].join("|"); }
-      function ensure(res) {
+      function ensure(full) {
+        var res = sub(full), shape = o.shape ? o.shape(full) : { u: false, o: false };
         var hist = res && res.hist ? res.hist : { start: q.min != null ? q.min : 0, size: 10, counts: Array(10).fill(0), under: 0, over: 0 };
-        var k = structKey(hist), fresh = k !== struct;
-        if (fresh) { struct = k; build(hist); }
+        var k = [hist.start, hist.size, hist.counts.length, hist.under > 0 || shape.u, hist.over > 0 || shape.o].join("|"), fresh = k !== struct;
+        if (fresh) { struct = k; build(hist, shape); }
         return { hist: hist, fresh: fresh };
       }
       var api2 = {
@@ -471,6 +490,61 @@
       };
       answerOn = !!st.answer;
       return api2;
+    }
+
+    // ---------------------------------------------------------------- Crowd Wisdom separato per gruppi
+    var GROUP_COLORS = [["#7fa6ad", "#46666d"], ["#f28f86", "#7d4d4a"]];
+    function groupOf(res, i) { return res && res.groups ? res.groups[i] : null; }
+    function groupLabel(res, i) {
+      var gr = groupOf(res, i), n = gr ? gr.total : 0;
+      return { text: (gr ? gr.label : i ? "Gruppo B" : "Gruppo A") + " · " + n + (n === 1 ? " risposta" : " risposte"), color: GROUP_COLORS[i][0] };
+    }
+    // A: due istogrammi uno sopra l'altro, stessa scala orizzontale, ciascuno con la sua linea
+    function histSplitView(q) {
+      var W = chart.clientWidth, H = chart.clientHeight, gap = 34, h2 = (H - gap) / 2;
+      var shape = function (res) { return { u: !!(res && res.hist && res.hist.under), o: !!(res && res.hist && res.hist.over) }; };
+      var views = [0, 1].map(function (i) {
+        var host = h("div", "t-hsub"); host.style.cssText = "position:absolute;left:0;right:0;top:" + (i * (h2 + gap)) + "px;height:" + h2 + "px";
+        chart.appendChild(host);
+        return histView(q, { host: host, W: W, H: h2, color: GROUP_COLORS[i][0], side: GROUP_COLORS[i][1], shape: shape,
+          pick: function (res) { return groupOf(res, i); }, label: function (res) { return groupLabel(res, i); } });
+      });
+      function all(fn) { return function () { var a = arguments; views.forEach(function (v) { v[fn].apply(null, a); }); }; }
+      return { update: all("update"), arm: all("arm"), intro: all("intro"), setAnswer: all("setAnswer") };
+    }
+    // C: solo i due numeri, grandi, affiancati (per lo "svelamento")
+    function bigNumView(q) {
+      var box = h("div", "t-bignum"); chart.appendChild(box);
+      var row = h("div", "row"); box.appendChild(row);
+      var which = q.line === "mean" ? "mean" : "median";
+      var fmt = function (v) { return v == null ? "–" : T.fmtNum(v, Math.abs(v) >= 100 || !q.decimals ? 0 : 1); };
+      var cols = [0, 1].map(function (i) {
+        var c = h("div", "col"), gn = h("div", "gname"), num = h("div", "num"), val = h("span", null, "–"), sb = h("div", "sub");
+        var dot = h("i"); dot.style.background = GROUP_COLORS[i][0]; gn.appendChild(dot); var gt = document.createTextNode(""); gn.appendChild(gt);
+        num.appendChild(val); if (q.unit) num.appendChild(h("small", null, q.unit));
+        c.appendChild(gn); c.appendChild(num); c.appendChild(sb); row.appendChild(c);
+        return { gt: gt, val: val, sb: sb };
+      });
+      var ans = h("div", "ans"); box.appendChild(ans);
+      if (q.answer != null) ans.textContent = "Risposta esatta " + T.fmtNum(q.answer) + (q.unit ? " " + q.unit : "");
+      var answerOn = !!st.answer;
+      function draw(res, animate) {
+        cols.forEach(function (c, i) {
+          var gr = groupOf(res, i), v = gr && gr.stats ? gr.stats[which] : null, n = gr ? gr.total : 0;
+          c.gt.textContent = gr ? gr.label : (i ? "Gruppo B" : "Gruppo A");
+          c.sb.textContent = (which === "mean" ? "media" : "mediana") + " di " + n + (n === 1 ? " risposta" : " risposte");
+          if (animate && v != null && Math.abs(v) >= 10) tween(c.val, Math.round(v), function (x) { return x === Math.round(v) ? fmt(v) : T.fmtNum(x, 0); }, { from: 0, dur: 900, delay: i * 150, force: true });
+          else { c.val._v = null; c.val.textContent = fmt(v); }
+        });
+        ans.classList.toggle("off", !(answerOn && q.answer != null));
+      }
+      var last = null;
+      return {
+        update: function (q2, res) { last = res; draw(res, false); },
+        arm: function () { cols.forEach(function (c) { c.val.textContent = "–"; }); ans.classList.add("off"); },
+        intro: function (q2, res) { last = res; draw(res, true); },
+        setAnswer: function (on) { answerOn = !!on; ans.classList.toggle("off", !(answerOn && q.answer != null)); }
+      };
     }
 
     // ---------------------------------------------------------------- ciambella (nessuna animazione)
@@ -682,6 +756,12 @@
         on = !!on; if (st.qonly === on) return;
         st.qonly = on; render();
         if (!on) api.playIntro();
+      },
+      // Crowd Wisdom separato per gruppi: "hist" (due istogrammi) o "numbers" (solo i numeri)
+      setSplitView: function (mode) {
+        mode = mode === "numbers" ? "numbers" : "hist";
+        if (st.split === mode) return;
+        st.split = mode; if (st.mode === "question") render();
       },
       setRevealed: function (on) {
         if (st.revealed === !!on) return;
