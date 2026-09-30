@@ -1,10 +1,17 @@
-// Taxi1729 Poll — disegno della slide (usato da add-in e presentazione da browser)
+// Taxi1729 Poll — disegno della slide (usato da add-in, presentazione da browser e anteprime)
+//
+// I grafici restano "vivi": quando arrivano nuovi voti non vengono ridisegnati da zero ma aggiornati,
+// così numeri e barre scorrono in modo fluido. Animazioni di comparsa:
+//  - barre: partono da zero una dopo l'altra quando compaiono i risultati;
+//  - dot cluster: i pallini compaiono uno dopo l'altro (anche quelli dei voti in arrivo);
+//  - torta: nessuna animazione.
 (function () {
   var T = window.T = window.T || {};
   var PALETTE = ["#e8ea6e", "#7fa6ad", "#f28f86", "#a9d18e", "#c7a3e0", "#f4b76a", "#8fd0e6", "#e0e0e0", "#d98fb5", "#9ea7f0", "#c9c26a", "#6fb59b"];
   var NONE_COLOR = "#56707a";
   T.PALETTE = PALETTE;
   var SVGNS = "http://www.w3.org/2000/svg";
+  var BAR_EASE = "cubic-bezier(.2,.7,.2,1)";
 
   T.loadScript = function (src, cb) {
     var el = document.createElement("script"); el.src = src; el.async = true;
@@ -15,6 +22,28 @@
   function h(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function s(tag, attrs) { var e = document.createElementNS(SVGNS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); return e; }
   function pct(n, tot) { return tot ? Math.round(n / tot * 100) : 0; }
+
+  // Numero che "scorre" fino al nuovo valore invece di saltare (circa mezzo secondo).
+  function tween(el, to, fmt, opts) {
+    opts = opts || {};
+    var from = opts.from != null ? opts.from : (el._v != null ? el._v : to);
+    var dur = opts.dur || 500, delay = opts.delay || 0;
+    if (el._raf) cancelAnimationFrame(el._raf);
+    if (el._tm) clearTimeout(el._tm);
+    el._v = to;
+    if (from === to && !opts.force) { el.textContent = fmt(to); return; }
+    el.textContent = fmt(from);
+    function start() {
+      var t0 = performance.now();
+      (function step(now) {
+        var k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+        el.textContent = fmt(Math.round(from + (to - from) * e));
+        if (k < 1) el._raf = requestAnimationFrame(step); else el._raf = null;
+      })(t0);
+    }
+    if (delay) el._tm = setTimeout(start, delay); else start();
+  }
+  var fmtPct = function (v) { return v + "%"; }, fmtInt = function (v) { return String(v); };
 
   T.Slide = function (root) {
     root.innerHTML = "";
@@ -32,11 +61,14 @@
     var qr = h("div", "t-qr"); right.appendChild(qr);
     var join = h("div", "t-join"); right.appendChild(join);
     var total = h("div", "t-total"); right.appendChild(total);
+    var totalNum = h("b", null, "0"), totalLab = document.createTextNode(" risposte");
+    total.appendChild(totalNum); total.appendChild(totalLab);
     var logo = h("img", "t-logo"); logo.src = "/assets/logo-negativo.png"; logo.alt = "Taxi1729"; canvas.appendChild(logo);
     var notice = h("div", "t-notice hidden"); canvas.appendChild(notice);
 
     var st = { mode: "question", code: null, q: null, number: 1, res: null, revealed: false, welcomeTitle: "" };
-    var prevWidths = {};
+    var view = null;             // grafico attualmente disegnato
+    var pendingIntro = 0;        // animazione di comparsa richiesta prima che arrivassero i risultati
 
     function fit() {
       var w = root.clientWidth || window.innerWidth, hgt = root.clientHeight || window.innerHeight;
@@ -60,6 +92,8 @@
       join.appendChild(h("strong", null, st.code));
     }
 
+    function currentRes() { return st.res && st.q && st.res.q === st.q.id ? st.res : null; }
+
     function render() {
       var welcome = st.mode === "welcome";
       stage.classList.toggle("welcome", welcome);
@@ -68,34 +102,34 @@
       total.classList.toggle("hidden", welcome);
       kNum.textContent = welcome ? "00" : String(st.number).padStart(2, "0");
       kTxt.textContent = welcome ? "BENVENUTI" : "SONDAGGIO";
-      if (welcome) { title.className = "t-title"; title.textContent = st.welcomeTitle || "Partecipa dal tuo smartphone"; return; }
+      if (welcome) { title.className = "t-title"; title.textContent = st.welcomeTitle || "Partecipa dal tuo smartphone"; chart.innerHTML = ""; view = null; return; }
       var q = st.q || { title: "", options: [] };
       var tt = q.title || "";
-      title.textContent = tt;
-      title.className = "t-title" + (tt.length > 110 ? " s" : tt.length > 60 ? " m" : "");
-      title.classList.toggle("hidden", !tt);
-      var res = st.res && st.q && st.res.q === st.q.id ? st.res : null;
+      if (title.textContent !== tt) title.textContent = tt;
+      title.className = "t-title" + (tt.length > 110 ? " s" : tt.length > 60 ? " m" : "") + (tt ? "" : " hidden");
+      var res = currentRes();
       var tot = res ? res.total : 0;
-      total.innerHTML = "<b>" + tot + "</b> " + (tot === 1 ? "risposta" : "risposte");
+      tween(totalNum, tot, fmtInt);
+      totalLab.textContent = tot === 1 ? " risposta" : " risposte";
       drawChart(q, res);
     }
 
+    // ---------------------------------------------------------------- scelta del grafico
     function drawChart(q, res) {
-      chart.innerHTML = "";
-      var n = (q.options || []).length; if (!n) return;
-      var counts = res ? res.counts : q.options.map(function () { return 0; });
-      var tot = res ? res.total : 0;
-      if (q.reveal === "click" && !st.revealed) {
-        var hr = h("div", "t-hiddenres");
-        hr.appendChild(h("div", "big", String(tot)));
-        hr.appendChild(h("div", "lab", tot === 1 ? "persona ha risposto" : "persone hanno risposto"));
-        chart.appendChild(hr);
-        return;
+      var n = (q.options || []).length;
+      if (!n) { chart.innerHTML = ""; view = null; return; }
+      var hidden = q.reveal === "click" && !st.revealed;
+      var seg = !hidden && res && res.seg ? res.seg : null;
+      var type = hidden ? "hidden" : (q.chart === "pie" ? "pie" : q.chart === "dots" ? "dots" : "bars");
+      var key = [type, q.id, n, q.options.join("\u0001"), seg ? segItems(seg).map(function (x) { return x.si; }).join(",") + "|" + (seg.title || "") : "",
+        chart.clientWidth, chart.clientHeight].join("|");
+      if (!view || view.key !== key) {
+        chart.innerHTML = "";
+        view = (type === "hidden" ? hiddenView : type === "pie" ? pieView : type === "dots" ? dotsView : barsView)(q, seg);
+        view.key = key;
       }
-      var seg = res && res.seg ? res.seg : null;
-      if (q.chart === "pie") return seg ? pieSeg(q, seg, tot) : pie(q, counts, tot);
-      if (q.chart === "dots") return dots(q, counts, tot, seg);
-      return bars(q, counts, tot, seg);
+      view.update(q, res);
+      if (pendingIntro && res && Date.now() - pendingIntro < 2500) { pendingIntro = 0; view.intro && view.intro(q, res); }
     }
 
     function legend(items, ttl) {
@@ -117,37 +151,78 @@
       });
       return items;
     }
+    function countsOf(q, res) { return res ? res.counts : q.options.map(function () { return 0; }); }
 
-    function bars(q, counts, tot, seg) {
-      var wrap = chart, top = 0;
-      if (seg) { var lg = legend(segItems(seg), seg.title ? "Colori in base alle risposte a: " + seg.title : "Colori in base alla domanda precedente"); chart.appendChild(lg); top = lg.offsetHeight + 18; }
-      var box = h("div", "t-bars"); box.style.top = top + "px"; wrap.appendChild(box);
-      var n = counts.length, H = chart.clientHeight - top;
-      var fs = Math.max(22, Math.min(40, H / (n * 2.7)));
-      var max = Math.max.apply(null, counts.concat([1]));
-      box.style.gap = Math.round(fs * 0.55) + "px";
-      counts.forEach(function (c, i) {
-        var b = h("div", "t-bar");
-        var l = h("div", "l", T.optLabel(q.options[i], i)); l.style.fontSize = fs + "px";
-        var v = h("div", "v", pct(c, tot) + "%"); v.style.fontSize = fs + "px";
-        var small = h("small", null, String(c)); v.appendChild(small);
-        var tr = h("div", "tr"); tr.style.height = Math.round(fs * 0.62) + "px"; tr.style.marginTop = "6px";
-        if (seg) {
-          segItems(seg).forEach(function (it) {
-            var f = h("div", "f"); f.style.background = it.color;
-            f.style.width = (seg.counts[it.si][i] / max * 100) + "%"; tr.appendChild(f);
-          });
-        } else {
-          var f = h("div", "f"); f.style.background = PALETTE[i % PALETTE.length];
-          var key = q.id + ":" + i, target = (c / max * 100) + "%";
-          f.style.width = prevWidths[key] || "0%"; tr.appendChild(f);
-          prevWidths[key] = target;
-          requestAnimationFrame(function () { requestAnimationFrame(function () { f.style.width = target; }); });
+    // ---------------------------------------------------------------- risultati nascosti
+    function hiddenView() {
+      var hr = h("div", "t-hiddenres"), big = h("div", "big", "0"), lab = h("div", "lab");
+      hr.appendChild(big); hr.appendChild(lab); chart.appendChild(hr);
+      return {
+        update: function (q, res) {
+          var tot = res ? res.total : 0;
+          tween(big, tot, fmtInt);
+          lab.textContent = tot === 1 ? "persona ha risposto" : "persone hanno risposto";
         }
-        b.appendChild(l); b.appendChild(v); b.appendChild(tr); box.appendChild(b);
-      });
+      };
     }
 
+    // ---------------------------------------------------------------- barre
+    function barsView(q, seg) {
+      var top = 0, items = seg ? segItems(seg) : null;
+      if (seg) { var lg = legend(items, seg.title ? "Colori in base alle risposte a: " + seg.title : "Colori in base alla domanda precedente"); chart.appendChild(lg); top = lg.offsetHeight + 18; }
+      var box = h("div", "t-bars"); box.style.top = top + "px"; chart.appendChild(box);
+      var n = q.options.length, H = chart.clientHeight - top;
+      var fs = Math.max(22, Math.min(40, H / (n * 2.7)));
+      box.style.gap = Math.round(fs * 0.55) + "px";
+      var rows = q.options.map(function (o, i) {
+        var b = h("div", "t-bar");
+        var l = h("div", "l", T.optLabel(o, i)); l.style.fontSize = fs + "px";
+        var v = h("div", "v"); v.style.fontSize = fs + "px";
+        var p = h("span", null, "0%"), c = h("small", null, "0"); v.appendChild(p); v.appendChild(c);
+        var tr = h("div", "tr"); tr.style.height = Math.round(fs * 0.62) + "px"; tr.style.marginTop = "6px";
+        var fills = (items || [{ color: PALETTE[i % PALETTE.length], si: -1 }]).map(function (it) {
+          var f = h("div", "f"); f.style.background = it.color; f.style.width = "0%"; f._si = it.si; tr.appendChild(f); return f;
+        });
+        b.appendChild(l); b.appendChild(v); b.appendChild(tr); box.appendChild(b);
+        return { p: p, c: c, fills: fills };
+      });
+      function targets(q, res) {
+        var counts = countsOf(q, res), max = Math.max.apply(null, counts.concat([1]));
+        return rows.map(function (r, i) {
+          return r.fills.map(function (f) {
+            var v = f._si < 0 ? counts[i] : (res && res.seg ? res.seg.counts[f._si][i] : 0);
+            return (v / max * 100) + "%";
+          });
+        });
+      }
+      return {
+        update: function (q, res) {
+          var counts = countsOf(q, res), tot = res ? res.total : 0, tg = targets(q, res);
+          rows.forEach(function (r, i) {
+            r.fills.forEach(function (f, k) { f.style.width = tg[i][k]; });
+            tween(r.p, pct(counts[i], tot), fmtPct);
+            tween(r.c, counts[i], fmtInt);
+          });
+        },
+        // Le barre ripartono da zero e crescono una dopo l'altra (tutto in meno di un secondo).
+        intro: function (q, res) {
+          var counts = countsOf(q, res), tot = res ? res.total : 0, tg = targets(q, res);
+          var stagger = rows.length > 1 ? Math.min(90, 300 / (rows.length - 1)) : 0, dur = 600;
+          rows.forEach(function (r) { r.fills.forEach(function (f) { f.style.transition = "none"; f.style.width = "0%"; }); });
+          void box.offsetWidth;
+          rows.forEach(function (r, i) {
+            var d = Math.round(i * stagger);
+            r.fills.forEach(function (f, k) { f.style.transition = "width " + dur + "ms " + BAR_EASE + " " + d + "ms"; f.style.width = tg[i][k]; });
+            tween(r.p, pct(counts[i], tot), fmtPct, { from: 0, dur: dur, delay: d, force: true });
+            tween(r.c, counts[i], fmtInt, { from: 0, dur: dur, delay: d, force: true });
+          });
+          clearTimeout(box._reset);
+          box._reset = setTimeout(function () { rows.forEach(function (r) { r.fills.forEach(function (f) { f.style.transition = ""; }); }); }, dur + rows.length * stagger + 50);
+        }
+      };
+    }
+
+    // ---------------------------------------------------------------- torta (nessuna animazione)
     function arcPath(cx, cy, r, a0, a1) {
       if (a1 - a0 >= Math.PI * 2 - 1e-6) return null;
       var x0 = cx + r * Math.sin(a0), y0 = cy - r * Math.cos(a0), x1 = cx + r * Math.sin(a1), y1 = cy - r * Math.cos(a1);
@@ -164,30 +239,33 @@
         a = a1;
       });
     }
-    function pie(q, counts, tot) {
-      var W = chart.clientWidth, H = chart.clientHeight;
-      var svg = s("svg", { "class": "t-svg", width: W, height: H, viewBox: "0 0 " + W + " " + H }); chart.appendChild(svg);
-      var r = Math.min(H / 2 - 8, W * 0.26), cx = r + 8, cy = H / 2;
-      var colors = counts.map(function (c, i) { return PALETTE[i % PALETTE.length]; });
-      drawPie(svg, cx, cy, r, counts, colors);
-      var n = counts.length, fs = Math.max(22, Math.min(38, H / (n * 1.7))), lh = fs * 1.55;
-      var y0 = cy - (n * lh) / 2 + lh / 2, x = cx + r + 70;
-      counts.forEach(function (c, i) {
-        var y = y0 + i * lh;
-        svg.appendChild(s("circle", { cx: x, cy: y, r: fs * 0.4, fill: colors[i] }));
-        var t = s("text", { x: x + fs * 0.9, y: y + fs * 0.35, "font-size": fs });
-        t.textContent = T.optLabel(q.options[i], i);
-        svg.appendChild(t);
-        var p = s("text", { x: W - 4, y: y + fs * 0.35, "font-size": fs, "text-anchor": "end", "font-weight": 800, style: "fill:#e8ea6e;font-family:Inter,sans-serif" });
-        p.textContent = pct(c, tot) + "%";
-        svg.appendChild(p);
-      });
-    }
-    function pieSeg(q, seg, tot) {
+    function pieView(q, seg) {
       var colors = q.options.map(function (o, i) { return PALETTE[i % PALETTE.length]; });
-      var lg = legend(q.options.map(function (o, i) { return { label: T.optLabel(o, i), color: colors[i] }; }), seg.title ? "Una torta per ogni risposta a: " + seg.title : null); chart.appendChild(lg);
-      var top = lg.offsetHeight + 12;
-      var groups = segItems(seg);
+      return {
+        update: function (q, res) {
+          chart.innerHTML = "";
+          var counts = countsOf(q, res), tot = res ? res.total : 0;
+          if (res && res.seg) return pieSegDraw(q, res.seg, colors);
+          var W = chart.clientWidth, H = chart.clientHeight;
+          var svg = s("svg", { "class": "t-svg", width: W, height: H, viewBox: "0 0 " + W + " " + H }); chart.appendChild(svg);
+          var r = Math.min(H / 2 - 8, W * 0.26), cx = r + 8, cy = H / 2;
+          drawPie(svg, cx, cy, r, counts, colors);
+          var n = counts.length, fs = Math.max(22, Math.min(38, H / (n * 1.7))), lh = fs * 1.55;
+          var y0 = cy - (n * lh) / 2 + lh / 2, x = cx + r + 70;
+          counts.forEach(function (c, i) {
+            var y = y0 + i * lh;
+            svg.appendChild(s("circle", { cx: x, cy: y, r: fs * 0.4, fill: colors[i] }));
+            var t = s("text", { x: x + fs * 0.9, y: y + fs * 0.35, "font-size": fs }); t.textContent = T.optLabel(q.options[i], i); svg.appendChild(t);
+            var p = s("text", { x: W - 4, y: y + fs * 0.35, "font-size": fs, "text-anchor": "end", "font-weight": 800, style: "fill:#e8ea6e;font-family:Inter,sans-serif" });
+            p.textContent = pct(c, tot) + "%"; svg.appendChild(p);
+          });
+        }
+      };
+    }
+    function pieSegDraw(q, seg, colors) {
+      var lg = legend(q.options.map(function (o, i) { return { label: T.optLabel(o, i), color: colors[i] }; }), seg.title ? "Una torta per ogni risposta a: " + seg.title : null);
+      chart.appendChild(lg);
+      var top = lg.offsetHeight + 12, groups = segItems(seg);
       var W = chart.clientWidth, H = chart.clientHeight - top;
       var svg = s("svg", { "class": "t-svg", width: W, height: H, viewBox: "0 0 " + W + " " + H }); svg.style.top = top + "px"; chart.appendChild(svg);
       var k = Math.max(1, groups.length), labH = 90;
@@ -196,49 +274,112 @@
         var cx = cellW * j + cellW / 2, cy = r + 6;
         drawPie(svg, cx, cy, r, seg.counts[g.si], colors);
         var fs = Math.max(20, Math.min(30, cellW / 9));
-        var t = s("text", { x: cx, y: cy + r + fs + 14, "font-size": fs, "text-anchor": "middle" });
-        t.textContent = g.label; svg.appendChild(t);
-        var dot = s("circle", { cx: cx, cy: cy + r + fs * 2 + 22, r: fs * 0.35, fill: g.color }); svg.appendChild(dot);
+        var t = s("text", { x: cx, y: cy + r + fs + 14, "font-size": fs, "text-anchor": "middle" }); t.textContent = g.label; svg.appendChild(t);
+        svg.appendChild(s("circle", { cx: cx, cy: cy + r + fs * 2 + 22, r: fs * 0.35, fill: g.color }));
       });
     }
-    function dots(q, counts, tot, seg) {
-      var top = 0;
-      if (seg) { var lg = legend(segItems(seg), seg.title ? "Colori in base alle risposte a: " + seg.title : null); chart.appendChild(lg); top = lg.offsetHeight + 12; }
-      var W = chart.clientWidth, H = chart.clientHeight - top, n = counts.length;
+
+    // ---------------------------------------------------------------- dot cluster
+    function dotsView(q, seg) {
+      var top = 0, items = seg ? segItems(seg) : null;
+      if (seg) { var lg = legend(items, seg.title ? "Colori in base alle risposte a: " + seg.title : null); chart.appendChild(lg); top = lg.offsetHeight + 12; }
+      var W = chart.clientWidth, H = chart.clientHeight - top, n = q.options.length;
       var svg = s("svg", { "class": "t-svg", width: W, height: H, viewBox: "0 0 " + W + " " + H }); svg.style.top = top + "px"; chart.appendChild(svg);
-      var colW = W / n, labH = 96, areaH = H - labH, maxN = Math.max.apply(null, counts.concat([1]));
-      var r = 44, step, cols;
-      for (; r > 2; r -= 0.5) {
-        step = r * 2.35; cols = Math.max(1, Math.floor((colW - 16) / step));
-        if (Math.ceil(maxN / cols) * step <= areaH) break;
-      }
-      step = r * 2.35; cols = Math.max(1, Math.floor((colW - 16) / step));
-      counts.forEach(function (c, i) {
-        var colors = [];
-        if (seg) segItems(seg).forEach(function (it) { for (var k = 0; k < seg.counts[it.si][i]; k++) colors.push(it.color); });
-        else for (var k = 0; k < c; k++) colors.push(PALETTE[i % PALETTE.length]);
-        var perRow = Math.min(cols, Math.max(1, colors.length));
-        var x0 = colW * i + colW / 2 - (perRow - 1) * step / 2;
-        colors.forEach(function (col, k) {
-          var row = Math.floor(k / cols), cix = k % cols;
-          svg.appendChild(s("circle", { cx: x0 + cix * step, cy: areaH - r - row * step, r: r, fill: col }));
-        });
+      var colW = W / n, labH = 96, areaH = H - labH;
+      var gDots = s("g", {}); svg.appendChild(gDots);
+      var cols = q.options.map(function (o, i) {
         svg.appendChild(s("line", { x1: colW * i + 12, x2: colW * (i + 1) - 12, y1: areaH + 6, y2: areaH + 6, stroke: "rgba(255,255,255,.18)", "stroke-width": 2 }));
         var fs = Math.max(18, Math.min(30, colW / 8));
         var lab = s("text", { x: colW * i + colW / 2, y: areaH + fs + 16, "font-size": fs, "text-anchor": "middle" });
-        var txt = T.optLabel(q.options[i], i), maxCh = Math.floor(colW / (fs * 0.52));
+        var txt = T.optLabel(o, i), maxCh = Math.floor(colW / (fs * 0.52));
         lab.textContent = txt.length > maxCh ? txt.slice(0, maxCh - 1) + "…" : txt; svg.appendChild(lab);
         var pv = s("text", { x: colW * i + colW / 2, y: areaH + fs * 2 + 26, "font-size": fs, "text-anchor": "middle", "font-weight": 800, style: "fill:#e8ea6e;font-family:Inter,sans-serif" });
-        pv.textContent = pct(c, tot) + "%"; svg.appendChild(pv);
+        pv.textContent = "0%"; svg.appendChild(pv);
+        return { pv: pv, dots: [] };
       });
+      var lay = null;
+      function layout(maxN) {
+        var r = 44, step, cn;
+        for (; r > 2; r -= 0.5) { step = r * 2.35; cn = Math.max(1, Math.floor((colW - 16) / step)); if (Math.ceil(maxN / cn) * step <= areaH) break; }
+        step = r * 2.35; cn = Math.max(1, Math.floor((colW - 16) / step));
+        return { r: r, step: step, cn: cn };
+      }
+      function pos(i, k, count) {
+        var perRow = Math.min(lay.cn, Math.max(1, count)), row = Math.floor(k / lay.cn), c = k % lay.cn;
+        var x0 = colW * i + colW / 2 - (perRow - 1) * lay.step / 2;
+        return { x: x0 + c * lay.step, y: areaH - lay.r - row * lay.step };
+      }
+      function colorsFor(q, res, i, count) {
+        var out = [];
+        if (res && res.seg) segItems(res.seg).forEach(function (it) { for (var k = 0; k < res.seg.counts[it.si][i]; k++) out.push(it.color); });
+        while (out.length < count) out.push(PALETTE[i % PALETTE.length]);
+        return out;
+      }
+      function makeDot(x, y, color, delay) {
+        var d = s("circle", { cx: x, cy: y, r: lay.r, fill: color });
+        if (delay != null) { d.setAttribute("class", "t-dot-in"); d.style.animationDelay = delay + "ms"; }
+        gDots.appendChild(d); return d;
+      }
+      return {
+        update: function (q, res) {
+          var counts = countsOf(q, res), tot = res ? res.total : 0;
+          var nl = layout(Math.max.apply(null, counts.concat([1])));
+          var relayout = !lay || nl.r !== lay.r || nl.cn !== lay.cn;
+          lay = nl;
+          var added = 0; counts.forEach(function (c, i) { added += Math.max(0, c - cols[i].dots.length); });
+          var gap = added ? Math.min(40, 450 / added) : 0, seq = 0;
+          counts.forEach(function (c, i) {
+            var col = cols[i], colors = colorsFor(q, res, i, c);
+            while (col.dots.length > c) gDots.removeChild(col.dots.pop());
+            col.dots.forEach(function (d, k) {
+              if (relayout) { var p = pos(i, k, c); d.setAttribute("cx", p.x); d.setAttribute("cy", p.y); d.setAttribute("r", lay.r); }
+              else if (k < lay.cn) { var p2 = pos(i, k, c); d.setAttribute("cx", p2.x); }   // la prima fila si ricentra
+              d.setAttribute("fill", colors[k]);
+            });
+            for (var k = col.dots.length; k < c; k++) { var p3 = pos(i, k, c); col.dots.push(makeDot(p3.x, p3.y, colors[k], Math.round(seq++ * gap))); }
+            tween(col.pv, pct(c, tot), fmtPct);
+          });
+        },
+        // Tutti i pallini ricompaiono uno dopo l'altro, dal basso, riempiendo le colonne insieme.
+        intro: function (q, res) {
+          var counts = countsOf(q, res), tot = res ? res.total : 0, totalDots = counts.reduce(function (a, b) { return a + b; }, 0);
+          gDots.innerHTML = ""; cols.forEach(function (c) { c.dots = []; });
+          lay = layout(Math.max.apply(null, counts.concat([1])));
+          var gap = totalDots ? Math.min(60, 1300 / totalDots) : 0, seq = 0;
+          var colorsAll = counts.map(function (c, i) { return colorsFor(q, res, i, c); });
+          var maxRows = Math.ceil(Math.max.apply(null, counts.concat([1])) / lay.cn);
+          for (var row = 0; row < maxRows; row++) {
+            counts.forEach(function (c, i) {
+              for (var k = row * lay.cn; k < Math.min(c, (row + 1) * lay.cn); k++) {
+                var p = pos(i, k, c); cols[i].dots[k] = makeDot(p.x, p.y, colorsAll[i][k], Math.round(seq++ * gap));
+              }
+            });
+          }
+          counts.forEach(function (c, i) { tween(cols[i].pv, pct(c, tot), fmtPct, { from: 0, dur: Math.max(500, seq * gap), force: true }); });
+        }
+      };
     }
 
     var api = {
       setEvent: function (ev) { if (!ev) return; if (ev.code !== st.code) { st.code = ev.code; drawQr(); } },
       setWelcome: function (t) { st.mode = "welcome"; st.welcomeTitle = t; render(); },
-      setQuestion: function (q, number) { st.mode = "question"; st.q = q; st.number = number || 1; render(); },
+      setQuestion: function (q, number) {
+        if (!st.q || !q || st.q.id !== q.id) { view = null; chart.innerHTML = ""; totalNum._v = null; }
+        st.mode = "question"; st.q = q; st.number = number || 1; render();
+      },
       setResults: function (res) { st.res = res; if (st.mode === "question") render(); },
-      setRevealed: function (on) { if (st.revealed !== !!on) { st.revealed = !!on; render(); } },
+      setRevealed: function (on) {
+        if (st.revealed === !!on) return;
+        st.revealed = !!on; render();
+        if (on) api.playIntro();
+      },
+      // Animazione di comparsa dei risultati: da chiamare quando la slide (o la sua versione con i risultati) compare.
+      playIntro: function () {
+        if (st.mode !== "question" || !st.q) return;
+        if (st.q.reveal === "click" && !st.revealed) return;
+        if (view && view.intro && currentRes()) view.intro(st.q, currentRes());
+        else pendingIntro = Date.now();
+      },
       setNotice: function (text) {
         notice.innerHTML = ""; notice.classList.toggle("hidden", !text);
         if (text) notice.appendChild(h("span", null, text));

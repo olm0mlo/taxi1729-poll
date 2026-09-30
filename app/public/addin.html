@@ -152,7 +152,7 @@
     active = on;
     log((on ? "▶ ATTIVA" : "■ NON ATTIVA") + " — " + why);
     clearInterval(beatTimer);
-    if (on) { announce(); beatTimer = setInterval(announce, HEARTBEAT_MS); }
+    if (on) { announce(); beatTimer = setInterval(announce, HEARTBEAT_MS); slide.playIntro(); }
     else if (conn && S.kind === "question" && S.questionId) conn.send({ t: "hide", q: S.questionId, k: slideKey() });
     drawSlideCtl();
   }

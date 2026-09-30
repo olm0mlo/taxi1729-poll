@@ -32,7 +32,7 @@
 .t-bar .v { font-weight: 800; color: #e8ea6e; font-variant-numeric: tabular-nums; }
 .t-bar .v small { font-weight: 400; color: #9fb3b9; margin-left: 12px; font-size: .7em; }
 .t-bar .tr { grid-column: 1 / -1; background: rgba(255,255,255,.08); border-radius: 99px; overflow: hidden; display: flex; }
-.t-bar .f { height: 100%; transition: width .6s ease; }
+.t-bar .f { height: 100%; transition: width .7s cubic-bezier(.2,.7,.2,1); }
 .t-legend { display: flex; flex-wrap: wrap; gap: 8px 28px; font-family: "Raleway", sans-serif; font-size: 26px; color: #dfe7e8; margin-bottom: 18px; }
 .t-legend i { display: inline-block; width: 20px; height: 20px; border-radius: 50%; margin-right: 10px; vertical-align: -2px; }
 .t-legend .ttl { color: #9fb3b9; width: 100%; font-size: 22px; }
@@ -41,3 +41,7 @@
 .t-hiddenres .lab { font-family: "Raleway", sans-serif; font-size: 40px; color: #9fb3b9; font-weight: 300; }
 .t-svg { position: absolute; inset: 0; }
 .t-svg text { font-family: "Raleway", sans-serif; fill: #fff; }
+
+/* Comparsa graduale dei pallini del dot cluster */
+@keyframes tDotIn { from { opacity: 0; transform: scale(.25); } 70% { opacity: 1; transform: scale(1.12); } to { opacity: 1; transform: scale(1); } }
+.t-dot-in { animation: tDotIn .45s ease-out both; transform-box: fill-box; transform-origin: center; }

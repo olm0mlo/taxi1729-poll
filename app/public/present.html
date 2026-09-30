@@ -71,6 +71,7 @@
       slide.setQuestion(Object.assign({ id: q.id }, q.data), idx);
       slide.setRevealed(live.q === q.id ? live.revealed : false);
       if (results[q.id]) slide.setResults(results[q.id]);
+      slide.playIntro();
     }
     document.getElementById("reveal").classList.toggle("hidden", !(q && q.data.reveal === "click"));
     updateRevealBtn();
