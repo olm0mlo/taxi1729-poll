@@ -80,5 +80,23 @@
     });
   };
   T.optLabel = function (o, i) { return (o && String(o).trim()) ? o : "Opzione " + (i + 1); };
+  // Numeri scritti all'italiana: "1.250" = milleduecentocinquanta, "1.250,5" o "12,5" con la virgola decimale.
+  // Un solo punto seguito da 1-2 o 4+ cifre ("3.5") vale come virgola. Restituisce NaN se non è un numero.
+  T.parseNum = function (txt) {
+    var s = String(txt == null ? "" : txt).replace(/[\s\u00a0']/g, "");
+    if (!s) return NaN;
+    if (!/^[-+]?[\d.,]*\d[\d.,]*$/.test(s)) return NaN;
+    if (s.indexOf(",") >= 0) {
+      if ((s.match(/,/g) || []).length > 1) return NaN;
+      s = s.replace(/\./g, "").replace(",", ".");
+    } else if (/^[-+]?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, "");
+    else if ((s.match(/\./g) || []).length > 1) return NaN;
+    var x = Number(s);
+    return isFinite(x) ? x : NaN;
+  };
+  T.fmtNum = function (x, maxDec) {
+    if (x == null || !isFinite(x)) return "";
+    return Number(x).toLocaleString("it-IT", { maximumFractionDigits: maxDec == null ? 2 : maxDec });
+  };
   T.joinUrl = function (code) { return location.origin + "/?e=" + encodeURIComponent(code); };
 })();

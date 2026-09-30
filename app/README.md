@@ -20,3 +20,11 @@ ogni modifica sul ramo `main`. Impostazioni del progetto Cloudflare:
 - Deploy command: `npx wrangler deploy`
 
 Al primo avvio, aprendo `/admin` si crea il primo utente.
+
+## Tipi di domanda
+- **Scelta multipla** — grafici: barre orizzontali, barre verticali, torta, dot cluster; segmentazione facoltativa.
+- **Crowd Wisdom** — il pubblico scrive una stima numerica (interi o decimali, minimo/massimo, unità di misura,
+  messaggio di errore personalizzabile). Risultato: istogramma con linea della mediana o della media e, se indicata,
+  la risposta esatta (gialla), visibile solo nelle slide in cui la si sceglie (add-in) o con il tasto **A** (browser).
+  Le colonne sono automatiche o fissate a mano; le stime fuori scala finiscono nelle colonne "sotto…"/"oltre…".
+  L'esportazione CSV riporta mediana, media, minimo, massimo e tutte le stime.

@@ -241,8 +241,12 @@
         var el = document.createElement("div");
         el.className = "card item";
         el.innerHTML = '<div class="qnum">' + (idx + 1) + '</div><div class="main"><div class="ttl">' + esc(q.data.title || "(domanda senza testo)") + '</div>' +
-          '<div style="margin-top:4px"><span class="chip">' + q.data.options.length + ' opzioni</span><span class="chip">' + (q.data.multi ? "Scelta multipla" : "Scelta singola") + '</span>' +
-          '<span class="chip">' + chartName(q.data.chart) + '</span><span class="chip">' + (q.data.reveal === "click" ? "Risultati su click" : "Risultati live") + '</span>' +
+          '<div style="margin-top:4px">' + (q.data.kind === "cw"
+            ? '<span class="chip">Crowd Wisdom</span><span class="chip">' + (q.data.decimals ? "Numeri decimali" : "Numeri interi") + (q.data.unit ? " · " + esc(q.data.unit) : "") + '</span>' +
+              (q.data.answer != null ? '<span class="chip">Risposta esatta ' + esc(T.fmtNum(q.data.answer)) + '</span>' : '')
+            : '<span class="chip">' + q.data.options.length + ' opzioni</span><span class="chip">' + (q.data.multi ? "Scelta multipla" : "Scelta singola") + '</span>' +
+              '<span class="chip">' + chartName(q.data.chart) + '</span>') +
+          '<span class="chip">' + (q.data.reveal === "click" ? "Risultati su click" : "Risultati live") + '</span>' +
           (q.data.segmentBy ? '<span class="chip">Segmentata</span>' : '') + '<span class="chip yellow" id="votes-' + esc(q.id) + '">' + votesLabel(q.votes, q.sim) + '</span></div></div>' +
           '<div class="acts"><button class="btn ghost small" data-a="edit">Modifica</button><button class="btn ghost small" data-a="res">Risultati</button>' +
           '<button class="btn ghost small" data-a="up" title="Sposta su"' + (idx ? '' : ' disabled') + '>↑</button>' +
@@ -268,12 +272,12 @@
     }
     function siblingsBefore(q) {
       var list = state.questions, end = q ? list.indexOf(q) : list.length;
-      return list.slice(0, end).map(function (x, i) { return { id: x.id, pos: i + 1, title: x.data.title, multi: x.data.multi }; });
+      return list.slice(0, end).map(function (x, i) { return { id: x.id, pos: i + 1, title: x.data.title, multi: x.data.multi, kind: x.data.kind }; });
     }
     function openEditor(q, anchor) {
       var card = document.createElement("div"); card.className = "card editor-card";
       if (q) { anchor.replaceWith(card); } else { anchor.innerHTML = ""; anchor.appendChild(card); }
-      card.innerHTML = '<h3>' + (q ? "Modifica domanda" : "Nuova domanda") + ' <span class="muted" style="font-weight:400;font-size:14px">· Risposta multipla</span></h3><div></div>';
+      card.innerHTML = '<h3>' + (q ? "Modifica domanda" : "Nuova domanda") + '</h3><div></div>';
       T.QuestionEditor(card.lastChild, {
         data: q ? q.data : null, siblings: siblingsBefore(q), saveLabel: q ? "Salva modifiche" : "Crea domanda",
         onCancel: function () { drawQuestions(); },
@@ -318,6 +322,7 @@
       slide.setEvent(state.event);
       slide.setQuestion(Object.assign({ id: q.id }, q.data), number);
       slide.setRevealed(true);
+      slide.setAnswerVisible(true);
       openPreview = { qid: q.id, slide: slide };
       if (!window.QRCode) T.loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js", function () { slide.redrawQr(); });
       T.api("questions/" + q.id + "/results").then(function (r) { slide.setResults(r); });

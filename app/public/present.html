@@ -24,7 +24,7 @@
 </head>
 <body class="ui">
 <div id="slide"></div>
-<div class="ctrl hidden" id="ctrl" title="Tasti: frecce per cambiare slide · R mostra le risposte · G cambia grafico · S simula voti · F schermo intero">
+<div class="ctrl hidden" id="ctrl" title="Tasti: frecce per cambiare slide · R mostra le risposte · G cambia grafico · A risposta esatta (Crowd Wisdom) · S simula voti · F schermo intero">
   <button class="btn ghost small" id="prev" title="Indietro (←)">←</button>
   <span class="pos" id="pos">–</span>
   <button class="btn ghost small" id="next" title="Avanti (→)">→</button>
@@ -41,7 +41,7 @@
   var eventId = new URLSearchParams(location.search).get("event");
   var over = document.getElementById("over"), esc = T.esc;
   var slide = T.Slide(document.getElementById("slide"));
-  var chartOver = {};   // grafico scelto con il tasto G, per domanda
+  var chartOver = {}, answerOn = {};   // answerOn: risposta esatta mostrata (tasto A), per domanda Crowd Wisdom   // grafico scelto con il tasto G, per domanda
   var ev = null, questions = [], idx = 0, conn = null, beat = null, live = { q: null, revealed: false }, force = false, results = {};
   T.loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js", function () { slide.redrawQr(); });
 
@@ -70,6 +70,7 @@
     if (!q) slide.setWelcome("Partecipa con il tuo smartphone");
     else {
       slide.setChartOverride(chartOver[q.id] || null);
+      slide.setAnswerVisible(!!answerOn[q.id]);
       slide.setQuestion(Object.assign({ id: q.id }, q.data), idx);
       slide.setRevealed(live.q === q.id ? live.revealed : false);
       if (results[q.id]) slide.setResults(results[q.id]);
@@ -122,7 +123,10 @@
       T.api("questions/" + current().id + "/simulate", { body: { count: 100, seconds: 20 } }).catch(function (er) { alert(er.message); });
     }
     else if (e.key === "Home") go(0);
-    else if ((e.key === "g" || e.key === "G") && current()) {
+    else if ((e.key === "a" || e.key === "A") && current() && current().data.kind === "cw") {
+      var qa = current(); answerOn[qa.id] = !answerOn[qa.id]; slide.setAnswerVisible(answerOn[qa.id]);
+    }
+    else if ((e.key === "g" || e.key === "G") && current() && current().data.kind !== "cw") {
       // cambia il tipo di grafico della domanda corrente: barre → torta → dot cluster
       var q = current(), order = ["bar", "vbar", "pie", "dots"];
       var now = chartOver[q.id] || q.data.chart || "bar";

@@ -77,7 +77,7 @@
     var logo = h("img", "t-logo"); logo.src = "/assets/logo-negativo.png"; logo.alt = "Taxi1729"; canvas.appendChild(logo);
     var notice = h("div", "t-notice hidden"); canvas.appendChild(notice);
 
-    var st = { mode: "question", code: null, eventName: "", q: null, number: 1, res: null, revealed: false, welcomeTitle: "", chartOverride: null, armed: false };
+    var st = { mode: "question", code: null, eventName: "", q: null, number: 1, res: null, revealed: false, welcomeTitle: "", chartOverride: null, armed: false, answer: false };
     var view = null;             // grafico attualmente disegnato
     var pendingIntro = 0;        // animazione di comparsa richiesta prima che arrivassero i risultati
 
@@ -118,25 +118,40 @@
       kTxt.textContent = welcome ? "BENVENUTI" : (st.eventName || "SONDAGGIO");
       if (welcome) { title.className = "t-title"; title.textContent = st.welcomeTitle || "Partecipa con il tuo smartphone"; chart.innerHTML = ""; view = null; return; }
       var q = st.q || { title: "", options: [] };
-      var tt = q.title || "";
+      var cw = q.kind === "cw", noTitle = cw && !q.showTitle;
+      var tt = noTitle ? "" : (q.title || "");
       if (title.textContent !== tt) title.textContent = tt;
       title.className = "t-title" + (tt.length > 110 ? " s" : tt.length > 60 ? " m" : "") + (tt ? "" : " hidden");
       var res = currentRes();
       var tot = res ? res.total : 0;
       tween(totalNum, tot, fmtInt);
       totalLab.textContent = tot === 1 ? " risposta" : " risposte";
-      // il grafico parte sempre sotto il QR e il suo codice (in alto a destra)
-      chart.style.marginTop = "0px";
-      var minTop = 380, t0 = chart.offsetTop;
-      if (t0 && t0 < minTop) chart.style.marginTop = (minTop - t0) + "px";
+      // il grafico parte sempre sotto il QR e il suo codice (in alto a destra)…
+      chart.style.marginTop = "0px"; chart.style.marginRight = "0px";
+      if (noTitle) {
+        // …tranne il Crowd Wisdom senza domanda scritta: sale subito sotto il nome dell'evento, a fianco del QR
+        chart.style.marginTop = "44px"; chart.style.marginRight = "250px";
+      } else {
+        var minTop = 380, t0 = chart.offsetTop;
+        if (t0 && t0 < minTop) chart.style.marginTop = (minTop - t0) + "px";
+      }
       drawChart(q, res);
     }
 
     // ---------------------------------------------------------------- scelta del grafico
     function drawChart(q, res) {
+      var hidden = q.reveal === "click" && !st.revealed;
+      if (q.kind === "cw") {
+        var tp = hidden ? "hidden" : "hist";
+        var k2 = [tp, q.id, q.line, q.answer, q.decimals, chart.clientWidth, chart.clientHeight].join("|");
+        if (!view || view.key !== k2) { chart.innerHTML = ""; view = (hidden ? hiddenView : histView)(q); view.key = k2; }
+        view.update(q, res);
+        if (st.armed && view.arm) view.arm();
+        if (pendingIntro && res && Date.now() - pendingIntro < 2500) { pendingIntro = 0; view.intro && view.intro(q, res); }
+        return;
+      }
       var n = (q.options || []).length;
       if (!n) { chart.innerHTML = ""; view = null; return; }
-      var hidden = q.reveal === "click" && !st.revealed;
       var seg = !hidden && res && res.seg ? res.seg : null;
       var ch = st.chartOverride || q.chart;
       var type = hidden ? "hidden" : (ch === "pie" ? "pie" : ch === "dots" ? "dots" : ch === "vbar" ? "vbars" : "bars");
@@ -313,6 +328,146 @@
           box._reset = setTimeout(function () { cols.forEach(function (c) { c.f.style.transition = c.pc.style.transition = ""; }); }, dur + cols.length * stagger + 50);
         }
       };
+    }
+
+
+    // ---------------------------------------------------------------- istogramma (Crowd Wisdom)
+    // Blocchi affiancati con un filo di spazio; le stime fuori scala stanno in colonne separate ("sotto…"/"oltre…").
+    // Sopra il grafico le etichette della linea (mediana o media, tratteggiata) e della risposta esatta (gialla):
+    // se si toccherebbero, si aprono "a bandiera" in direzioni opposte, e se non basta vanno su due righe.
+    function histView(q) {
+      var box = h("div", "t-hist"); chart.appendChild(box);
+      var W = chart.clientWidth, H = chart.clientHeight;
+      var PILL_H = 50, topH = PILL_H + 26, axisH = 60, baseY = H - axisH, plotH = baseY - topH;
+      var MAIN = "#7fa6ad", SIDE = "#46666d", EASE = BAR_EASE;
+      var struct = "", bars = [], g = null, stat = null, ans = null, answerOn = false, lastRes = null;
+      var dec = function (x, d) { return T.fmtNum(x, d); };
+
+      function mkLine(cls) {
+        var ln = h("div", "ln " + cls), pill = h("div", "pill " + cls);
+        box.appendChild(ln); box.appendChild(pill);
+        return { ln: ln, pill: pill, x: null, shown: false };
+      }
+      function build(hist) {
+        box.innerHTML = ""; bars = [];
+        var nb = hist.counts.length, hasU = hist.under > 0, hasO = hist.over > 0, sides = (hasU ? 1 : 0) + (hasO ? 1 : 0), sep = 34;
+        var bw0 = (W - sides * sep) / (nb + sides), sideW = Math.max(80, Math.min(150, bw0));
+        var bw = Math.min(190, (W - sides * (sep + sideW)) / nb);
+        var totalW = nb * bw + sides * (sep + sideW), x0 = (W - totalW) / 2;
+        var gap = Math.max(3, Math.min(8, bw * 0.1));
+        var xm0 = x0 + (hasU ? sideW + sep : 0), xm1 = xm0 + nb * bw;
+        g = { nb: nb, bw: bw, gap: gap, xm0: xm0, xm1: xm1, start: hist.start, size: hist.size, hasU: hasU, hasO: hasO };
+        function addBar(left, width, color) {
+          var b = h("div", "bar"); b.style.cssText = "left:" + left + "px;width:" + width + "px;bottom:" + (H - baseY) + "px;height:0px;background:" + color;
+          box.appendChild(b); bars.push(b); return b;
+        }
+        function addBase(left, width) { var l = h("div", "base"); l.style.cssText = "left:" + left + "px;width:" + width + "px;top:" + baseY + "px"; box.appendChild(l); }
+        function addLab(cx, text) {
+          var t = h("div", "tick", text), w = 220, L = Math.max(0, Math.min(W - w, cx - w / 2));
+          t.style.cssText = "left:" + L + "px;width:" + w + "px;top:" + (baseY + 14) + "px;text-align:" + (L === 0 && cx < w / 2 ? "left" : L === W - w && cx > W - w / 2 ? "right" : "center");
+          box.appendChild(t);
+        }
+        if (hasU) { addBar(x0, sideW, SIDE)._k = "u"; addBase(x0, sideW); addLab(x0 + sideW / 2, "sotto " + dec(hist.start)); }
+        for (var i = 0; i < nb; i++) addBar(xm0 + i * bw + gap / 2, bw - gap, MAIN)._k = i;
+        addBase(xm0, nb * bw);
+        var every = Math.max(1, Math.ceil(130 / bw));
+        for (var e = 0; e <= nb; e += every) {
+          if ((e === 0 && hasU) || (e === nb && hasO)) continue;     // c'è già "sotto…" / "oltre…"
+          addLab(xm0 + e * bw, dec(hist.start + e * hist.size));
+        }
+        if (hasO) { var xo = xm1 + sep; addBar(xo, sideW, SIDE)._k = "o"; addBase(xo, sideW); addLab(xo + sideW / 2, "oltre " + dec(hist.start + nb * hist.size)); }
+        stat = q.line !== "none" ? mkLine("stat") : null;
+        ans = q.answer != null ? mkLine("ans") : null;
+        if (ans) ans.pill.textContent = "Risposta esatta " + dec(q.answer);
+      }
+      function xOf(v) { return Math.max(g.xm0, Math.min(g.xm1, g.xm0 + (v - g.start) / g.size * g.bw)); }
+      function heights(hist) {
+        var vals = bars.map(function (b) { return b._k === "u" ? hist.under : b._k === "o" ? hist.over : hist.counts[b._k]; });
+        var max = Math.max.apply(null, vals.concat([1]));
+        return vals.map(function (v) { return v / max * plotH; });
+      }
+      // posizione delle etichette in alto, senza sovrapposizioni
+      function placeLabels() {
+        var items = [stat, ans].filter(function (it) { return it && it.shown && it.x != null; });
+        items.forEach(function (it) { it.pill.classList.remove("fl", "fr"); it.w = it.pill.offsetWidth || 260; it.left = it.x - it.w / 2; it.row = 0; });
+        var clamp = function (it) { it.left = Math.max(0, Math.min(W - it.w, it.left)); };
+        items.forEach(clamp);
+        if (items.length === 2) {
+          var a = items[0].x <= items[1].x ? items[0] : items[1], b = a === items[0] ? items[1] : items[0], M = 14;
+          if (a.left + a.w + M > b.left) {
+            // "a bandiera": l'etichetta di sinistra si apre verso sinistra, quella di destra verso destra,
+            // ciascuna col lato piatto attaccato alla sua linea
+            a.pill.classList.add("fl"); b.pill.classList.add("fr");
+            a.w = a.pill.offsetWidth || a.w; b.w = b.pill.offsetWidth || b.w;
+            a.left = a.x - a.w + 2; b.left = b.x - 2;
+            if (a.left < 0 || b.left + b.w > W || a.left + a.w + 4 > b.left) {       // non c'è spazio: due righe
+              a.pill.classList.remove("fl"); b.pill.classList.remove("fr");
+              a.w = a.pill.offsetWidth || a.w; b.w = b.pill.offsetWidth || b.w;
+              a.left = a.x - a.w / 2; b.left = b.x - b.w / 2; clamp(a); clamp(b);
+              (ans === a ? b : a).row = 1;
+            }
+          }
+        }
+        items.forEach(function (it) {
+          var top = it.row ? PILL_H + 8 : 0;
+          it.pill.style.left = it.left + "px"; it.pill.style.top = top + "px";
+          it.ln.style.left = (it.x - 2) + "px"; it.ln.style.top = top + "px"; it.ln.style.height = Math.max(0, baseY - top) + "px";   // la linea parte dall'etichetta (asta della bandiera)
+        });
+      }
+      function setLines(res, animate) {
+        var ok = res && res.stats;
+        if (stat) {
+          var v = ok ? (q.line === "mean" ? res.stats.mean : res.stats.median) : null;
+          stat.shown = v != null; stat.x = v != null ? xOf(v) : null;
+          if (v != null) stat.pill.textContent = (q.line === "mean" ? "Media " : "Mediana ") + dec(v, q.decimals ? 1 : (q.line === "mean" ? 0 : 1));
+        }
+        if (ans) { ans.shown = answerOn; ans.x = xOf(q.answer); }
+        [stat, ans].forEach(function (it) {
+          if (!it) return;
+          it.ln.classList.toggle("off", !it.shown); it.pill.classList.toggle("off", !it.shown);
+        });
+        placeLabels();
+      }
+      function noTrans(fn) {
+        var els = box.querySelectorAll(".bar,.ln,.pill");
+        Array.prototype.forEach.call(els, function (e) { e.style.transition = "none"; });
+        fn(); void box.offsetWidth;
+        Array.prototype.forEach.call(els, function (e) { e.style.transition = ""; });
+      }
+      function structKey(hist) { return [hist.start, hist.size, hist.counts.length, hist.under > 0, hist.over > 0].join("|"); }
+      function ensure(res) {
+        var hist = res && res.hist ? res.hist : { start: q.min != null ? q.min : 0, size: 10, counts: Array(10).fill(0), under: 0, over: 0 };
+        var k = structKey(hist), fresh = k !== struct;
+        if (fresh) { struct = k; build(hist); }
+        return { hist: hist, fresh: fresh };
+      }
+      var api2 = {
+        update: function (q2, res) {
+          lastRes = res;
+          var r = ensure(res), hs = heights(r.hist);
+          if (r.fresh) noTrans(function () { bars.forEach(function (b, i) { b.style.height = hs[i] + "px"; }); setLines(res); });
+          else { bars.forEach(function (b, i) { b.style.height = hs[i] + "px"; }); setLines(res); }
+        },
+        arm: function () {
+          noTrans(function () {
+            bars.forEach(function (b) { b.style.height = "0px"; });
+            box.querySelectorAll(".ln,.pill").forEach(function (e) { e.classList.add("off"); });
+          });
+        },
+        // colonne che crescono da sinistra a destra, poi compaiono le linee
+        intro: function (q2, res) {
+          lastRes = res;
+          var r = ensure(res), hs = heights(r.hist), n = bars.length;
+          var stagger = n > 1 ? Math.min(45, 450 / (n - 1)) : 0, dur = 600, end = dur + (n - 1) * stagger;
+          noTrans(function () { bars.forEach(function (b) { b.style.height = "0px"; }); box.querySelectorAll(".ln,.pill").forEach(function (e) { e.classList.add("off"); }); });
+          bars.forEach(function (b, i) { b.style.transition = "height " + dur + "ms " + EASE + " " + Math.round(i * stagger) + "ms"; b.style.height = hs[i] + "px"; });
+          clearTimeout(box._t);
+          box._t = setTimeout(function () { bars.forEach(function (b) { b.style.transition = ""; }); setLines(lastRes); }, end - 150);
+        },
+        setAnswer: function (on) { answerOn = !!on; if (bars.length) setLines(lastRes); }
+      };
+      answerOn = !!st.answer;
+      return api2;
     }
 
     // ---------------------------------------------------------------- ciambella (nessuna animazione)
@@ -514,6 +669,11 @@
         st.mode = "question"; st.q = q; st.number = number || 1; render();
       },
       setResults: function (res) { st.res = res; if (st.mode === "question") render(); },
+      // Crowd Wisdom: mostra o nasconde la linea della risposta esatta in questa slide
+      setAnswerVisible: function (on) {
+        on = !!on; if (st.answer === on) return;
+        st.answer = on; if (view && view.setAnswer) view.setAnswer(on);
+      },
       setRevealed: function (on) {
         if (st.revealed === !!on) return;
         st.revealed = !!on; render();

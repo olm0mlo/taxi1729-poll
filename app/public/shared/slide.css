@@ -70,3 +70,20 @@
 .t-vbars .pct { text-align: center; font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; line-height: 1; transition: bottom .7s cubic-bezier(.2,.7,.2,1); }
 .t-vbars .lab { text-align: center; font-family: "Raleway", sans-serif; line-height: 1.2; color: #fff;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Istogramma (Crowd Wisdom) */
+.t-hist { position: absolute; inset: 0; }
+.t-hist > div { position: absolute; }
+.t-hist .bar { border-radius: 4px 4px 0 0; transition: height .7s cubic-bezier(.2,.7,.2,1); }
+.t-hist .base { height: 2px; background: rgba(255,255,255,.18); }
+.t-hist .tick { font-family: "Raleway", sans-serif; font-size: 26px; color: #9fb3b9; white-space: nowrap; }
+.t-hist .pill { height: 50px; line-height: 50px; padding: 0 22px; border-radius: 99px; font-weight: 800; font-size: 28px; white-space: nowrap;
+  background: #fff; color: #02151f; font-variant-numeric: tabular-nums; z-index: 2;
+  transition: left .7s cubic-bezier(.2,.7,.2,1), top .4s ease, opacity .45s ease; }
+.t-hist .pill.ans { background: #e8ea6e; }
+.t-hist .pill.fl { border-radius: 99px 0 0 99px; padding-right: 18px; }
+.t-hist .pill.fr { border-radius: 0 99px 99px 0; padding-left: 18px; }
+.t-hist .ln { width: 0; z-index: 1; transition: left .7s cubic-bezier(.2,.7,.2,1), opacity .45s ease, top .4s ease, height .4s ease; }
+.t-hist .ln.stat { border-left: 4px dashed #fff; }
+.t-hist .ln.ans { border-left: 4px solid #e8ea6e; }
+.t-hist .off { opacity: 0; }

@@ -60,6 +60,63 @@ async function checkPassword(password, stored) {
 }
 function csvCell(v) { const s = String(v ?? ""); return /[";\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
 
+// Messaggio per un numero non valido (se l'utente non ne ha scritto uno suo)
+function crowdHint(d) {
+  const f = (x) => Number(x).toLocaleString("it-IT");
+  let s = d.decimals ? "Inserisci un numero" : "Inserisci un numero intero";
+  if (d.min !== null && d.max !== null) s += ` tra ${f(d.min)} e ${f(d.max)}`;
+  else if (d.min === 0 && !d.decimals) s = "Inserisci un numero intero positivo o zero";
+  else if (d.min !== null) s += ` non inferiore a ${f(d.min)}`;
+  else if (d.max !== null) s += ` non superiore a ${f(d.max)}`;
+  return s;
+}
+// Larghezza "tonda" delle colonne: 1, 2, 2,5, 5 × 10^k
+function niceStep(x, decimals) {
+  if (!(x > 0)) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(x))), m = x / p;
+  let s = (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 && p >= 10 ? 2.5 : m <= 5 ? 5 : 10) * p;
+  if (!decimals) s = Math.max(1, Math.round(s));
+  return s;
+}
+// Istogramma delle stime. Se chi crea la domanda non fissa inizio/larghezza/fine, le colonne si calcolano
+// sui valori ricevuti (circa 12 colonne), ignorando le stime più estreme, che finiscono nelle colonne
+// laterali "sotto …" / "oltre …".
+function histogram(vals, d) {
+  const n = vals.length;
+  const q = (p) => vals[Math.min(n - 1, Math.max(0, Math.floor(p * (n - 1))))];
+  let start = d.binStart, size = d.binSize, end = d.binEnd;
+  if (start === null || size === null || end === null) {
+    let lo, hi;
+    if (!n) { lo = d.min ?? 0; hi = d.max ?? lo + 100; }
+    else if (n < 20) { lo = vals[0]; hi = vals[n - 1]; }
+    else { lo = q(0.02); hi = q(0.95); }
+    if (start !== null) lo = start;
+    if (end !== null) hi = end;
+    if (d.min !== null && lo < d.min) lo = d.min;
+    if (d.max !== null && hi > d.max) hi = d.max;
+    if (!(hi > lo)) hi = lo + (d.decimals ? 1 : 10);
+    if (size === null) size = niceStep((hi - lo) / 12, d.decimals);
+    if (start === null) { start = Math.floor(lo / size) * size; if (lo >= 0 && start < 0) start = 0; }
+    let nb = Math.max(1, Math.ceil((hi - start) / size - 1e-9));
+    if (end === null) {
+      if (start + nb * size <= hi) nb++;
+      // allarga per includere le stime fuori scala se bastano poche colonne in più
+      if (n) while (nb < 16 && vals[n - 1] >= start + nb * size && vals[n - 1] < start + (nb + 3) * size) nb++;
+    }
+    end = start + Math.min(nb, 40) * size;
+  }
+  const nb = Math.max(1, Math.min(60, Math.round((end - start) / size)));
+  end = start + nb * size;
+  const counts = Array(nb).fill(0);
+  let under = 0, over = 0;
+  for (const v of vals) {
+    if (v < start) under++;
+    else if (v >= end && !(v === end && d.max !== null && v === d.max)) over++;
+    else counts[Math.min(nb - 1, Math.floor((v - start) / size + 1e-9))]++;
+  }
+  return { start, size, counts, under, over };
+}
+
 // ---------------------------------------------------------------------------------------------
 // Hub: dati + tempo reale
 // ---------------------------------------------------------------------------------------------
@@ -139,6 +196,7 @@ export class Hub {
   // ----- pulizia dei dati delle domande -----
   cleanQuestion(d, eventId) {
     d = d || {};
+    if (d.kind === "cw") return this.cleanCrowd(d);
     const o = { kind: "mc" };
     o.title = str(d.title, 300);
     let opts = Array.isArray(d.options) ? d.options.map(x => str(x, 140)) : [];
@@ -151,8 +209,28 @@ export class Hub {
     o.segmentBy = null;
     if (typeof d.segmentBy === "string" && d.segmentBy) {
       const b = this.getQ(d.segmentBy);
-      if (b && b.eventId === eventId && !b.data.multi) o.segmentBy = b.id;
+      if (b && b.eventId === eventId && !b.data.multi && b.data.kind !== "cw") o.segmentBy = b.id;
     }
+    return o;
+  }
+  // Crowd Wisdom: il pubblico scrive un numero (una stima), i risultati sono un istogramma.
+  cleanCrowd(d) {
+    const num = (v) => { if (v === null || v === undefined || v === "") return null; const x = Number(v); return Number.isFinite(x) && Math.abs(x) < 1e12 ? x : null; };
+    const o = { kind: "cw" };
+    o.title = str(d.title, 300);
+    o.showTitle = !!d.showTitle;
+    o.unit = str(d.unit, 30);
+    o.decimals = !!d.decimals;
+    o.min = num(d.min); o.max = num(d.max);
+    if (o.min !== null && o.max !== null && o.max <= o.min) fail(400, "Il massimo deve essere più grande del minimo");
+    o.error = str(d.error, 140);
+    o.line = ["median", "mean", "none"].includes(d.line) ? d.line : "median";
+    o.answer = num(d.answer);
+    o.binStart = num(d.binStart); o.binSize = num(d.binSize); o.binEnd = num(d.binEnd);
+    if (o.binSize !== null && o.binSize <= 0) fail(400, "La larghezza delle colonne deve essere maggiore di zero");
+    if (o.binStart !== null && o.binEnd !== null && o.binEnd <= o.binStart) fail(400, "Il valore finale dell'istogramma deve essere più grande di quello iniziale");
+    o.reveal = d.reveal === "click" ? "click" : "live";
+    o.chart = "hist";
     return o;
   }
 
@@ -167,6 +245,7 @@ export class Hub {
   }
   results(qid) {
     const q = this.getQ(qid); if (!q) return null;
+    if (q.data.kind === "cw") return this.crowdResults(q);
     const n = q.data.options.length, t = this.tally(qid);
     const counts = Array(n).fill(0);
     for (const ch of t.byVoter.values()) for (const i of ch) if (i >= 0 && i < n) counts[i]++;
@@ -183,6 +262,19 @@ export class Hub {
       res.seg = { base: base.id, title: base.data.title, labels: base.data.options.concat(["Nessuna risposta"]), counts: seg };
     }
     return res;
+  }
+  crowdResults(q) {
+    const t = this.tally(q.id), vals = [];
+    let sim = 0;
+    for (const [v, ch] of t.byVoter) { if (v.startsWith("sim-")) sim++; if (typeof ch[0] === "number") vals.push(ch[0]); }
+    vals.sort((a, b) => a - b);
+    const n = vals.length;
+    const stats = n ? {
+      mean: vals.reduce((a, b) => a + b, 0) / n,
+      median: n % 2 ? vals[(n - 1) / 2] : (vals[n / 2 - 1] + vals[n / 2]) / 2,
+      min: vals[0], max: vals[n - 1]
+    } : null;
+    return { t: "results", q: q.id, kind: "cw", total: t.byVoter.size, sim, stats, hist: histogram(vals, q.data) };
   }
   markDirty(qid) {
     this.dirty.add(qid);
@@ -203,6 +295,7 @@ export class Hub {
   // I votanti simulati hanno un identificativo "sim-…", che i telefoni veri non possono usare.
   startSim(q, count, seconds) {
     this.stopSim(q.id);
+    if (q.data.kind === "cw") return this.startCrowdSim(q, count, seconds);
     const n = q.data.options.length;
     const base = q.data.segmentBy ? this.getQ(q.data.segmentBy) : null;
     const bn = base ? base.data.options.length : 0;
@@ -248,6 +341,40 @@ export class Hub {
     tick();
     return job;
   }
+  // Stime simulate: distribuzione asimmetrica (log-normale) attorno a un valore centrale, come nelle stime vere.
+  startCrowdSim(q, count, seconds) {
+    const d = q.data;
+    let center = d.answer;
+    if (center === null || center === undefined) center = d.min !== null && d.max !== null ? (d.min + d.max) / 2 : d.max !== null ? d.max / 2 : 100 + Math.random() * 900;
+    if (center <= 0) center = Math.abs(center) + 10;
+    const center2 = center * (0.8 + Math.random() * 0.3);
+    const gauss = () => { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+    const one = () => {
+      let x = center2 * Math.exp(0.38 * gauss());
+      if (Math.random() < 0.04) x *= 2 + Math.random() * 2;     // qualche stima esagerata
+      if (d.min !== null) x = Math.max(d.min, x);
+      if (d.max !== null) x = Math.min(d.max, x);
+      return d.decimals ? Math.round(x * 10) / 10 : Math.round(x);
+    };
+    const perTick = seconds > 0 ? Math.max(1, Math.ceil(count / (seconds * 4))) : count;
+    const job = { made: 0, total: count, timer: null };
+    this.sims.set(q.id, job);
+    const tick = () => {
+      if (this.sims.get(q.id) !== job) return;
+      const L = this.live.get(q.eventId);
+      if (!L || L.qid !== q.id) { this.stopSim(q.id); return; }
+      const t = this.tally(q.id), now = Date.now();
+      for (let k = 0; k < perTick && job.made < job.total; k++) {
+        const voter = "sim-" + rid(10), v = [one()];
+        this.run("INSERT OR IGNORE INTO votes (question_id, voter, choices, created, sim) VALUES (?, ?, ?, ?, 1)", q.id, voter, JSON.stringify(v), now);
+        t.byVoter.set(voter, v); job.made++;
+      }
+      this.markDirty(q.id);
+      if (job.made < job.total) job.timer = setTimeout(tick, 250); else this.sims.delete(q.id);
+    };
+    tick();
+    return job;
+  }
   stopSim(qid) {
     const job = this.sims.get(qid);
     if (job) { clearTimeout(job.timer); this.sims.delete(qid); }
@@ -273,7 +400,9 @@ export class Hub {
     const q = L && L.qid ? this.getQ(L.qid) : null;
     return {
       t: "state",
-      q: q ? { id: q.id, title: q.data.title, options: q.data.options, multi: !!q.data.multi } : null,
+      q: q ? (q.data.kind === "cw"
+        ? { id: q.id, kind: "cw", title: q.data.title, unit: q.data.unit, decimals: q.data.decimals, min: q.data.min, max: q.data.max, error: q.data.error }
+        : { id: q.id, title: q.data.title, options: q.data.options, multi: !!q.data.multi }) : null,
       voted: q ? this.tally(q.id).byVoter.has(voter) : false
     };
   }
@@ -526,7 +655,20 @@ export class Hub {
 
   exportCsv(ev) {
     const rows = [["Evento", "Domanda n.", "Domanda", "Risposta", "Voti", "Percentuale", "Partecipanti alla domanda"]];
+    const crowd = [["Evento", "Domanda n.", "Domanda", "Stima"]];
+    const dec = (x) => String(Math.round(x * 100) / 100).replace(".", ",");
     for (const q of this.eventQuestions(ev.id)) {
+      if (q.data.kind === "cw") {
+        const vals = this.all("SELECT choices FROM votes WHERE question_id = ? AND sim = 0", q.id).map(v => JSON.parse(v.choices)[0]).filter(x => typeof x === "number").sort((a, b) => a - b);
+        const n = vals.length, title = q.data.title || "(senza testo)";
+        const stat = (lab, x) => rows.push([ev.name, q.pos, title, lab, x === null ? "" : dec(x), "", n]);
+        stat("Mediana", n ? (n % 2 ? vals[(n - 1) / 2] : (vals[n / 2 - 1] + vals[n / 2]) / 2) : null);
+        stat("Media", n ? vals.reduce((a, b) => a + b, 0) / n : null);
+        stat("Minimo", n ? vals[0] : null); stat("Massimo", n ? vals[n - 1] : null);
+        if (q.data.answer !== null && q.data.answer !== undefined) stat("Risposta esatta", q.data.answer);
+        for (const x of vals) crowd.push([ev.name, q.pos, title, dec(x)]);
+        continue;
+      }
       // conteggi dai soli voti veri (i simulati sono esclusi)
       const n = q.data.options.length, r = { counts: Array(n).fill(0), total: 0 };
       for (const v of this.all("SELECT choices FROM votes WHERE question_id = ? AND sim = 0", q.id)) {
@@ -537,7 +679,8 @@ export class Hub {
           r.total ? (Math.round(r.counts[i] / r.total * 1000) / 10).toString().replace(".", ",") + "%" : "0%", r.total]);
       });
     }
-    const csv = "﻿" + rows.map(r => r.map(csvCell).join(";")).join("\r\n");
+    const all = crowd.length > 1 ? rows.concat([[], ["Stime delle domande Crowd Wisdom (una riga per risposta)"]], crowd) : rows;
+    const csv = "﻿" + all.map(r => r.map(csvCell).join(";")).join("\r\n");
     const fname = (ev.name || "evento").replace(/[^\w\-]+/g, "_").slice(0, 60);
     return new Response(csv, { headers: {
       "content-type": "text/csv; charset=utf-8", "cache-control": "no-store",
@@ -589,7 +732,22 @@ export class Hub {
       if (msg.t !== "vote") return;
       const L = this.live.get(att.eventId);
       if (!L || !L.qid || L.qid !== msg.q) return reply({ t: "error", msg: "Questa domanda non è più aperta." });
-      const q = this.getQ(msg.q); const n = q.data.options.length;
+      const q = this.getQ(msg.q);
+      if (q.data.kind === "cw") {
+        const d = q.data, v = typeof msg.value === "number" ? msg.value : NaN;
+        const bad = !Number.isFinite(v) || Math.abs(v) >= 1e12 || (!d.decimals && !Number.isInteger(v)) ||
+          (d.min !== null && v < d.min) || (d.max !== null && v > d.max);
+        if (bad) return reply({ t: "error", msg: d.error || crowdHint(d) });
+        const t = this.tally(q.id);
+        if (t.byVoter.has(att.voter)) return reply({ t: "voted", q: q.id, already: true });
+        const val = [Math.round(v * 1e6) / 1e6];
+        this.run("INSERT OR IGNORE INTO votes (question_id, voter, choices, created) VALUES (?, ?, ?, ?)", q.id, att.voter, JSON.stringify(val), Date.now());
+        t.byVoter.set(att.voter, val);
+        reply({ t: "voted", q: q.id });
+        this.markDirty(q.id);
+        return;
+      }
+      const n = q.data.options.length;
       let choices = Array.isArray(msg.choices) ? [...new Set(msg.choices.filter(i => Number.isInteger(i) && i >= 0 && i < n))] : [];
       if (!choices.length) return reply({ t: "error", msg: "Seleziona una risposta." });
       if (!q.data.multi) choices = choices.slice(0, 1);

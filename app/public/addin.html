@@ -61,6 +61,7 @@
     welcomeTitle: "Partecipa con il tuo smartphone",
     results: "hidden",              // domande con risultati "su click": in questa slide nascosti o visibili
     chart: "",                      // grafico di questa slide ("" = quello della domanda)
+    answer: "hidden",               // Crowd Wisdom: risposta esatta in questa slide nascosta o visibile
     slideId: null, slideIndex: null, fitted: false, debug: false
   };
   var KEYS = Object.keys(S);
@@ -198,6 +199,7 @@
   function renderSlide() {
     slide.setEvent(S.eventCode ? { code: S.eventCode, name: S.eventName } : null);
     slide.setChartOverride(S.chart || null);
+    slide.setAnswerVisible(S.answer === "shown");
     if (S.kind === "welcome") slide.setWelcome(S.welcomeTitle);
     else if (S.snapshot) {
       slide.setQuestion(Object.assign({ id: S.questionId }, S.snapshot), S.number);
@@ -307,7 +309,7 @@
         html += '<label class="lbl">Domanda mostrata in questa slide</label><div class="inline"><select id="selQ">' + qOpts + '</select></div>' +
           '<div class="qe-actions" style="margin-top:10px"><button class="btn small" id="bNewQ">+ Nuova domanda</button>' +
           (S.questionId && !missing ? '<button class="btn ghost small" id="bEditQ">Modifica questa domanda</button>' : '') + '</div>';
-        if (S.snapshot && !missing) {
+        if (S.snapshot && !missing && S.snapshot.kind !== "cw") {
           var CHN = { bar: "Barre orizzontali", vbar: "Barre verticali", pie: "Torta", dots: "Dot cluster" };
           var qc = CHN[S.snapshot.chart] || CHN.bar;
           html += '<label class="lbl">Grafico in questa slide</label><div class="seg">' +
@@ -324,10 +326,17 @@
             '<div class="hint">Per mostrare le risposte senza cliccare: <b>duplica questa slide</b> e nella copia scegli <b>Visibili</b>. ' +
             'In presentazione, premendo avanti le risposte compariranno. Il pubblico può continuare a votare anche sulla slide dei risultati.</div>';
         }
+        if (S.snapshot && S.snapshot.kind === "cw" && S.snapshot.answer != null && !missing) {
+          html += '<label class="lbl">Risposta esatta in questa slide</label><div class="seg">' +
+            '<label><input type="radio" name="ans" value="hidden"' + (S.answer !== "shown" ? " checked" : "") + '>Nascosta</label>' +
+            '<label><input type="radio" name="ans" value="shown"' + (S.answer === "shown" ? " checked" : "") + '>Visibile (' + esc(T.fmtNum(S.snapshot.answer)) + ')</label></div>' +
+            '<div class="hint">Per svelarla: <b>duplica questa slide</b> e nella copia scegli <b>Visibile</b>.</div>';
+        }
         if (missing) html += '<div class="banner red">La domanda scelta per questa slide è stata eliminata. Scegline un\'altra o creane una nuova.</div>';
         if (copyNotice) html += '<div class="banner">Questa slide sembra una <b>copia</b> di un\'altra slide: entrambe mostrano la stessa domanda (stessi voti).' +
           '<div class="qe-actions" style="margin-top:8px">' +
           (S.snapshot && S.snapshot.reveal === "click" ? '<button class="btn small" id="bResSlide">È la slide dei risultati</button>' : '') +
+          (S.snapshot && S.snapshot.kind === "cw" && S.snapshot.answer != null ? '<button class="btn small" id="bAnsSlide">È la slide della risposta esatta</button>' : '') +
           '<button class="btn ' + (S.snapshot && S.snapshot.reveal === "click" ? 'ghost ' : '') + 'small" id="bDupQ">Crea una domanda indipendente</button>' +
           '<button class="btn ghost small" id="bKeep">Va bene così</button></div></div>';
       } else {
@@ -359,7 +368,7 @@
       r.onchange = function () { S.kind = r.value; saveSettings(); drawEditor(); };
     });
     if ($("selQ")) $("selQ").onchange = function () {
-      S.questionId = this.value || null; missing = false; copyNotice = false; S.results = "hidden"; S.chart = "";
+      S.questionId = this.value || null; missing = false; copyNotice = false; S.results = "hidden"; S.chart = ""; S.answer = "hidden";
       var q = questions.find(function (x) { return x.id === S.questionId; });
       S.snapshot = q ? q.data : null; S.number = q ? q.pos : 1; lastResults = null;
       saveSettings(); drawEditor();
@@ -373,6 +382,10 @@
       }).then(drawEditor, function (e) { alert(e.message); });
     };
     if ($("bKeep")) $("bKeep").onclick = function () { copyNotice = false; drawEditor(); };
+    if ($("bAnsSlide")) $("bAnsSlide").onclick = function () { S.answer = "shown"; S.results = "shown"; copyNotice = false; saveSettings(); drawEditor(); };
+    Array.prototype.forEach.call(document.querySelectorAll('input[name="ans"]'), function (r) {
+      r.onchange = function () { S.answer = r.value; saveSettings(); drawMini(); };
+    });
     if ($("bResSlide")) $("bResSlide").onclick = function () { S.results = "shown"; copyNotice = false; saveSettings(); drawEditor(); };
     Array.prototype.forEach.call(document.querySelectorAll('input[name="sch"]'), function (r) {
       r.onchange = function () { S.chart = r.value; saveSettings(); drawMini(); };
@@ -392,6 +405,7 @@
     mini = T.Slide(box);
     mini.setEvent(S.eventCode ? { code: S.eventCode, name: S.eventName } : null);
     mini.setChartOverride(S.chart || null);
+    mini.setAnswerVisible(S.answer === "shown");
     if (S.kind === "welcome") mini.setWelcome(S.welcomeTitle);
     else if (S.snapshot) { mini.setQuestion(Object.assign({ id: S.questionId }, S.snapshot), S.number); mini.setRevealed(isRevealed()); }
     else mini.setWelcome(S.eventId ? "Scegli o crea una domanda" : "Scegli un evento");
@@ -401,7 +415,7 @@
     var ed = $("editor");
     var cur = editing.isNew ? null : questions.find(function (q) { return q.id === S.questionId; });
     var idx = cur ? questions.indexOf(cur) : questions.length;
-    var siblings = questions.slice(0, idx).map(function (q, i) { return { id: q.id, pos: i + 1, title: q.data.title, multi: q.data.multi }; });
+    var siblings = questions.slice(0, idx).map(function (q, i) { return { id: q.id, pos: i + 1, title: q.data.title, multi: q.data.multi, kind: q.data.kind }; });
     ed.innerHTML = '<div class="card panel"><h3>' + (editing.isNew ? "Nuova domanda" : "Modifica domanda") + '</h3>' +
       (editing.isNew ? '' : '<div class="hint">Le modifiche valgono ovunque la domanda è usata: pannello web e altre slide.</div>') + '<div id="qeBox"></div></div>';
     T.QuestionEditor($("qeBox"), {
