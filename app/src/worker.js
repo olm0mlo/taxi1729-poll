@@ -5,7 +5,8 @@
 // Durable Object, "Hub", che conserva i dati in un database SQLite interno e tiene aperti
 // i collegamenti con PowerPoint, il pannello e i telefoni del pubblico.
 
-const STALE_MS = 8000;              // senza conferme dalla slide per 8 s, la domanda si chiude per il pubblico
+const STALE_MS = 8000;
+const HIDE_GRACE_MS = 1500;         // attesa prima di chiudere una domanda quando la sua slide si chiude              // senza conferme dalla slide per 8 s, la domanda si chiude per il pubblico
 const LOCK_MS = 10 * 60 * 1000;     // una presentazione senza segnali da 10 minuti è considerata "sospesa"
 const SESSION_MS = 60 * 24 * 3600 * 1000;
 const PBKDF2_ITER = 20000;
@@ -534,14 +535,25 @@ export class Hub {
           L = { qid, since: now, userId: att.userId, userName: att.userName, lastBeat: now, revealed: false };
           this.live.set(ev, L);
         }
-        L.lastBeat = now;
+        L.lastBeat = now; L.hideToken = null;
+        L.k = typeof msg.k === "string" ? msg.k.slice(0, 60) : null;   // quale slide sta mostrando la domanda
         if (changed) { this.saveLive(ev); this.pushLive(ev); if (qid) reply(this.results(qid)); }
         if (qid) await this.ensureAlarm();
         return;
       }
       if (msg.t === "hide") {
-        if (L && L.qid && L.qid === msg.q && L.userId === att.userId) {
-          L.qid = null; L.revealed = false; L.lastBeat = now; this.saveLive(ev); this.pushLive(ev);
+        // Una slide che si chiude non deve spegnere la stessa domanda appena aperta da un'altra slide
+        // (ad esempio passando dalla slide della domanda a quella con i risultati visibili).
+        // Chiusura con un attimo di ritardo: se nel frattempo un'altra slide riapre la stessa domanda,
+        // il pubblico non vede lampeggiare la schermata d'attesa.
+        if (L && L.qid && L.qid === msg.q && L.userId === att.userId && (!msg.k || !L.k || msg.k === L.k)) {
+          const token = L.hideToken = rid(6);
+          setTimeout(() => {
+            const cur = this.live.get(ev);
+            if (!cur || cur.hideToken !== token || cur.qid !== msg.q) return;
+            cur.qid = null; cur.revealed = false; cur.hideToken = null; cur.lastBeat = Date.now();
+            this.saveLive(ev); this.pushLive(ev);
+          }, HIDE_GRACE_MS);
         }
         return;
       }

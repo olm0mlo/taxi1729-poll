@@ -55,6 +55,7 @@
     kind: "question",               // "question" | "welcome"
     questionId: null, snapshot: null, number: 1,
     welcomeTitle: "Partecipa dal tuo smartphone",
+    results: "hidden",              // domande con risultati "su click": in questa slide nascosti o visibili
     slideId: null, slideIndex: null, fitted: false, debug: false
   };
   var KEYS = Object.keys(S);
@@ -103,6 +104,11 @@
     } catch (e) { cb(null); }
   }
   function baseId(x) { return String(x || "").split("#")[0]; }
+  var INSTANCE = "i" + Math.random().toString(36).slice(2, 10);
+  function slideKey() { return baseId(S.slideId) || INSTANCE; }
+  function isRevealed() {
+    return !S.snapshot || S.snapshot.reveal !== "click" || S.results === "shown" || (live.q === S.questionId && !!live.revealed);
+  }
   function sameSlide(cur) { return !!(cur && cur.id && S.slideId && baseId(cur.id) === baseId(S.slideId)); }
 
   function detectMySlide(force) {
@@ -143,12 +149,12 @@
     log((on ? "▶ ATTIVA" : "■ NON ATTIVA") + " — " + why);
     clearInterval(beatTimer);
     if (on) { announce(); beatTimer = setInterval(announce, HEARTBEAT_MS); }
-    else if (conn && S.kind === "question" && S.questionId) conn.send({ t: "hide", q: S.questionId });
+    else if (conn && S.kind === "question" && S.questionId) conn.send({ t: "hide", q: S.questionId, k: slideKey() });
     drawSlideCtl();
   }
   function announce() {
     if (!conn || !active) return;
-    conn.send({ t: "show", q: S.kind === "question" ? S.questionId : null, force: force });
+    conn.send({ t: "show", q: S.kind === "question" ? S.questionId : null, k: slideKey(), force: force });
   }
 
   // ------------------------------------------------------------------ collegamento in tempo reale (in proiezione)
@@ -169,7 +175,7 @@
     if (m.t === "results" && m.q === S.questionId) { lastResults = m; slide.setResults(m); }
     else if (m.t === "live") {
       live = m;
-      if (S.questionId && m.q === S.questionId) slide.setRevealed(m.revealed);
+      if (S.questionId) slide.setRevealed(isRevealed());
       if (lockedBy && m.userId && me && m.userId === me.id) { lockedBy = null; slide.setNotice(null); }
       drawSlideCtl();
     } else if (m.t === "locked") {
@@ -187,7 +193,7 @@
     if (S.kind === "welcome") slide.setWelcome(S.welcomeTitle);
     else if (S.snapshot) {
       slide.setQuestion(Object.assign({ id: S.questionId }, S.snapshot), S.number);
-      slide.setRevealed(S.snapshot.reveal !== "click" || (live.q === S.questionId && live.revealed));
+      slide.setRevealed(isRevealed());
       if (lastResults && lastResults.q === S.questionId) slide.setResults(lastResults);
     } else slide.setWelcome("Scegli una domanda dal pannello dell'add-in");
     if (!S.eventId && view === "read") slide.setNotice("Add-in non configurato: apri la slide in modalità Modifica");
@@ -204,10 +210,6 @@
       force = true; lockedBy = null; slide.setNotice(null); announce(); drawSlideCtl();
       setTimeout(function () { force = false; }, 4000);
     }, "warn");
-    if (active && S.kind === "question" && S.snapshot && S.snapshot.reveal === "click") {
-      var on = live.q === S.questionId && live.revealed;
-      addBtn(on ? "Nascondi le risposte" : "Mostra le risposte", function () { conn && conn.send({ t: "reveal", q: S.questionId, on: !on }); });
-    }
     function addBtn(label, fn, cls) {
       var b = document.createElement("button"); b.textContent = label; if (cls) b.className = cls;
       b.onclick = function (e) { fn(e); b.blur(); };
@@ -297,9 +299,19 @@
         html += '<label class="lbl">Domanda mostrata in questa slide</label><div class="inline"><select id="selQ">' + qOpts + '</select></div>' +
           '<div class="qe-actions" style="margin-top:10px"><button class="btn small" id="bNewQ">+ Nuova domanda</button>' +
           (S.questionId && !missing ? '<button class="btn ghost small" id="bEditQ">Modifica questa domanda</button>' : '') + '</div>';
+        if (S.snapshot && S.snapshot.reveal === "click" && !missing) {
+          html += '<label class="lbl">Risultati in questa slide</label><div class="seg">' +
+            '<label><input type="radio" name="res" value="hidden"' + (S.results !== "shown" ? " checked" : "") + '>Nascosti (si vota)</label>' +
+            '<label><input type="radio" name="res" value="shown"' + (S.results === "shown" ? " checked" : "") + '>Visibili</label></div>' +
+            '<div class="hint">Per mostrare le risposte senza cliccare: <b>duplica questa slide</b> e nella copia scegli <b>Visibili</b>. ' +
+            'In presentazione, premendo avanti le risposte compariranno. Il pubblico può continuare a votare anche sulla slide dei risultati.</div>';
+        }
         if (missing) html += '<div class="banner red">La domanda scelta per questa slide è stata eliminata. Scegline un\'altra o creane una nuova.</div>';
         if (copyNotice) html += '<div class="banner">Questa slide sembra una <b>copia</b> di un\'altra slide: entrambe mostrano la stessa domanda (stessi voti).' +
-          '<div class="qe-actions" style="margin-top:8px"><button class="btn small" id="bDupQ">Crea una copia indipendente</button><button class="btn ghost small" id="bKeep">Va bene così</button></div></div>';
+          '<div class="qe-actions" style="margin-top:8px">' +
+          (S.snapshot && S.snapshot.reveal === "click" ? '<button class="btn small" id="bResSlide">È la slide dei risultati</button>' : '') +
+          '<button class="btn ' + (S.snapshot && S.snapshot.reveal === "click" ? 'ghost ' : '') + 'small" id="bDupQ">Crea una domanda indipendente</button>' +
+          '<button class="btn ghost small" id="bKeep">Va bene così</button></div></div>';
       } else {
         html += '<label class="lbl" for="wTitle">Titolo della slide</label><input type="text" id="wTitle" maxlength="120">';
       }
@@ -329,7 +341,7 @@
       r.onchange = function () { S.kind = r.value; saveSettings(); drawEditor(); };
     });
     if ($("selQ")) $("selQ").onchange = function () {
-      S.questionId = this.value || null; missing = false; copyNotice = false;
+      S.questionId = this.value || null; missing = false; copyNotice = false; S.results = "hidden";
       var q = questions.find(function (x) { return x.id === S.questionId; });
       S.snapshot = q ? q.data : null; S.number = q ? q.pos : 1; lastResults = null;
       saveSettings(); drawEditor();
@@ -343,6 +355,10 @@
       }).then(drawEditor, function (e) { alert(e.message); });
     };
     if ($("bKeep")) $("bKeep").onclick = function () { copyNotice = false; drawEditor(); };
+    if ($("bResSlide")) $("bResSlide").onclick = function () { S.results = "shown"; copyNotice = false; saveSettings(); drawEditor(); };
+    Array.prototype.forEach.call(document.querySelectorAll('input[name="res"]'), function (r) {
+      r.onchange = function () { S.results = r.value; saveSettings(); drawMini(); };
+    });
     if ($("wTitle")) { $("wTitle").value = S.welcomeTitle; $("wTitle").onchange = function () { S.welcomeTitle = this.value.trim() || "Partecipa dal tuo smartphone"; saveSettings(); drawMini(); }; }
     $("bPrev").onclick = function () { preview = true; renderMode(); };
     $("bFit").onclick = function () { fitToSlide(true); };
@@ -355,7 +371,7 @@
     mini = T.Slide(box);
     mini.setEvent(S.eventCode ? { code: S.eventCode } : null);
     if (S.kind === "welcome") mini.setWelcome(S.welcomeTitle);
-    else if (S.snapshot) { mini.setQuestion(Object.assign({ id: S.questionId }, S.snapshot), S.number); mini.setRevealed(true); }
+    else if (S.snapshot) { mini.setQuestion(Object.assign({ id: S.questionId }, S.snapshot), S.number); mini.setRevealed(isRevealed()); }
     else mini.setWelcome(S.eventId ? "Scegli o crea una domanda" : "Scegli un evento");
     setTimeout(function () { mini.fit(); mini.render(); }, 30);
   }
@@ -496,7 +512,7 @@
   }, true);
 
   document.addEventListener("visibilitychange", function () { log("visibilità: " + document.visibilityState); tick(); if (document.visibilityState === "visible") nudgeRepaint(); });
-  window.addEventListener("pagehide", function () { if (active && conn && S.kind === "question" && S.questionId) conn.send({ t: "hide", q: S.questionId }); });
+  window.addEventListener("pagehide", function () { if (active && conn && S.kind === "question" && S.questionId) conn.send({ t: "hide", q: S.questionId, k: slideKey() }); });
   T.loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js", function (ok) { log(ok ? "libreria QR caricata" : "ERRORE libreria QR"); slide.redrawQr(); if (mini) mini.redrawQr(); });
 
   renderSlide();

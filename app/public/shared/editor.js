@@ -31,7 +31,8 @@
       '    <label><input type="radio" name="qe-chart-' + n + '" value="dots">Dot cluster</label></div></div>' +
       '  <div><label class="lbl">Risultati</label><div class="seg">' +
       '    <label><input type="radio" name="qe-rev-' + n + '" value="live">In tempo reale</label>' +
-      '    <label><input type="radio" name="qe-rev-' + n + '" value="click">Su "Mostra le risposte"</label></div></div>' +
+      '    <label><input type="radio" name="qe-rev-' + n + '" value="click">Su "Mostra le risposte"</label></div>' +
+      '    <div class="hint" style="max-width:340px">In PowerPoint: duplica la slide e nella copia scegli "Risultati visibili". Nel browser: tasto R.</div></div>' +
       '</div>' +
       '<label class="lbl" for="qe-seg-' + n + '">Segmenta le risposte</label>' +
       '<select id="qe-seg-' + n + '"></select>' +
