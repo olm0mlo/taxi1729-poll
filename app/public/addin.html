@@ -58,7 +58,7 @@
     eventId: null, eventCode: null, eventName: null,
     kind: "question",               // "question" | "welcome"
     questionId: null, snapshot: null, number: 1,
-    welcomeTitle: "Partecipa dal tuo smartphone",
+    welcomeTitle: "Partecipa con il tuo smartphone",
     results: "hidden",              // domande con risultati "su click": in questa slide nascosti o visibili
     chart: "",                      // grafico di questa slide ("" = quello della domanda)
     slideId: null, slideIndex: null, fitted: false, debug: false
@@ -83,6 +83,7 @@
     if (!officeReady) return;
     var st = Office.context.document.settings;
     KEYS.forEach(function (k) { var v = st.get(k); if (v !== null && v !== undefined) S[k] = v; });
+    if (S.welcomeTitle === "Partecipa dal tuo smartphone") S.welcomeTitle = "Partecipa con il tuo smartphone";
   }
   function saveSettings() {
     if (!officeReady) return;
@@ -307,11 +308,12 @@
           '<div class="qe-actions" style="margin-top:10px"><button class="btn small" id="bNewQ">+ Nuova domanda</button>' +
           (S.questionId && !missing ? '<button class="btn ghost small" id="bEditQ">Modifica questa domanda</button>' : '') + '</div>';
         if (S.snapshot && !missing) {
-          var qc = { bar: "Barre", pie: "Torta", dots: "Dot cluster" }[S.snapshot.chart] || "Barre";
+          var CHN = { bar: "Barre orizzontali", vbar: "Barre verticali", pie: "Torta", dots: "Dot cluster" };
+          var qc = CHN[S.snapshot.chart] || CHN.bar;
           html += '<label class="lbl">Grafico in questa slide</label><div class="seg">' +
             '<label><input type="radio" name="sch" value=""' + (!S.chart ? " checked" : "") + '>Come la domanda (' + qc + ')</label>' +
-            ['bar', 'pie', 'dots'].filter(function (c) { return c !== (S.snapshot.chart || "bar"); }).map(function (c) {
-              return '<label><input type="radio" name="sch" value="' + c + '"' + (S.chart === c ? " checked" : "") + '>' + { bar: "Barre", pie: "Torta", dots: "Dot cluster" }[c] + '</label>';
+            ['bar', 'vbar', 'pie', 'dots'].filter(function (c) { return c !== (S.snapshot.chart || "bar"); }).map(function (c) {
+              return '<label><input type="radio" name="sch" value="' + c + '"' + (S.chart === c ? " checked" : "") + '>' + CHN[c] + '</label>';
             }).join("") + '</div>' +
             '<div class="hint">Per mostrare gli stessi risultati in più modi, duplica la slide e scegli un grafico diverso in ogni copia.</div>';
         }
@@ -378,7 +380,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('input[name="res"]'), function (r) {
       r.onchange = function () { S.results = r.value; saveSettings(); drawMini(); };
     });
-    if ($("wTitle")) { $("wTitle").value = S.welcomeTitle; $("wTitle").onchange = function () { S.welcomeTitle = this.value.trim() || "Partecipa dal tuo smartphone"; saveSettings(); drawMini(); }; }
+    if ($("wTitle")) { $("wTitle").value = S.welcomeTitle; $("wTitle").onchange = function () { S.welcomeTitle = this.value.trim() || "Partecipa con il tuo smartphone"; saveSettings(); drawMini(); }; }
     $("bPrev").onclick = function () { preview = true; renderMode(); };
     $("bFit").onclick = function () { fitToSlide(true); };
     bindDiag();

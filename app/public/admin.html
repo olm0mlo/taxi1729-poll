@@ -74,7 +74,7 @@
   var esc = T.esc, me = null, liveConn = null;
   T.loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js");
 
-  function chartName(c) { return { bar: "Barre", pie: "Torta", dots: "Dot cluster" }[c] || "Barre"; }
+  function chartName(c) { return { bar: "Barre orizzontali", vbar: "Barre verticali", pie: "Torta", dots: "Dot cluster" }[c] || "Barre orizzontali"; }
   function fmtDate(t) { return new Date(t).toLocaleDateString("it-IT", { day: "numeric", month: "short", year: "numeric" }); }
   function errBox(e) { return '<div class="err">' + esc(e.message || e) + '</div>'; }
   function confirmDo(msg) { return window.confirm(msg); }

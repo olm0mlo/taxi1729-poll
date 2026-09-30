@@ -67,7 +67,7 @@
     idx = Math.max(0, Math.min(total - 1, i));
     var q = current();
     document.getElementById("pos").textContent = (idx === 0 ? "Benvenuto" : idx + " / " + questions.length);
-    if (!q) slide.setWelcome("Partecipa dal tuo smartphone");
+    if (!q) slide.setWelcome("Partecipa con il tuo smartphone");
     else {
       slide.setChartOverride(chartOver[q.id] || null);
       slide.setQuestion(Object.assign({ id: q.id }, q.data), idx);
@@ -124,7 +124,7 @@
     else if (e.key === "Home") go(0);
     else if ((e.key === "g" || e.key === "G") && current()) {
       // cambia il tipo di grafico della domanda corrente: barre → torta → dot cluster
-      var q = current(), order = ["bar", "pie", "dots"];
+      var q = current(), order = ["bar", "vbar", "pie", "dots"];
       var now = chartOver[q.id] || q.data.chart || "bar";
       var next = order[(order.indexOf(now) + 1) % order.length];
       chartOver[q.id] = next === (q.data.chart || "bar") ? null : next;

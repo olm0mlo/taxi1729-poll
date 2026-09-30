@@ -8,7 +8,7 @@
 .t-kicker span { text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .t-kicker b { font-weight: 300; font-size: 80px; color: #fff; }
 .t-kicker b::after { content: ""; display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: #e8ea6e; margin-left: 6px; }
-.t-title { font-weight: 800; font-size: 80px; line-height: 1.08; letter-spacing: -.02em; margin: 22px 0 34px; }
+.t-title { font-weight: 800; font-size: 80px; line-height: 1.08; letter-spacing: -.02em; margin: 22px 0 34px; text-wrap: balance; }
 .t-title.m { font-size: 64px; } .t-title.s { font-size: 52px; }
 .t-chart { flex: 1; min-height: 0; position: relative; }
 /* Slide delle domande: QR piccolo in alto a destra con il codice sotto, grafico a tutta larghezza,
@@ -25,14 +25,17 @@
 .t-total b { color: #fff; font-weight: 800; }
 .t-logo { position: absolute; right: 96px; bottom: 30px; height: 56px; }
 .t-welcome-text { font-family: "Raleway", sans-serif; font-weight: 300; font-size: 42px; line-height: 1.4; color: #9fb3b9; max-width: 92%; }
-/* Slide di benvenuto: QR grande a destra, con indirizzo e codice */
-.t-stage.welcome .t-canvas { grid-template-columns: 1fr 660px; gap: 80px; padding-bottom: 76px; }
-.t-stage.welcome .t-kicker, .t-stage.welcome .t-title { max-width: none; }
-.t-stage.welcome .t-right { position: static; pointer-events: auto; display: flex; flex-direction: column; align-items: center; gap: 22px; text-align: center; padding-top: 14px; }
-.t-stage.welcome .t-qr { position: static; width: 100%; padding: 22px; border-radius: 18px; }
-.t-stage.welcome .t-code { display: none; }
-.t-stage.welcome .t-join { display: block; }
-.t-stage.welcome .t-title { font-size: 104px; }
+/* Slide di benvenuto: solo il titolo e le istruzioni a sinistra, QR grande a destra; tutto centrato in verticale */
+.t-stage.welcome .t-canvas { grid-template-columns: 1fr 560px; gap: 130px; align-items: center; padding: 90px 150px 130px; }
+.t-stage.welcome .t-left { justify-content: center; }
+.t-stage.welcome .t-kicker { display: none; }
+.t-stage.welcome .t-title { font-size: 100px; line-height: 1.04; margin: 0 0 48px; max-width: none; }
+.t-stage.welcome .t-welcome-text { font-size: 38px; line-height: 1.45; color: #9fb3b9; }
+.t-stage.welcome .t-welcome-text b { color: #fff; font-weight: 600; }
+.t-wcode { font-family: "Inter", sans-serif; font-weight: 800; font-size: 96px; color: #fff; letter-spacing: .12em; line-height: 1; margin-top: 18px; }
+.t-stage.welcome .t-right { position: static; pointer-events: auto; display: flex; align-items: center; justify-content: center; }
+.t-stage.welcome .t-qr { position: static; width: 560px; padding: 26px; border-radius: 22px; }
+.t-stage.welcome .t-code, .t-stage.welcome .t-join { display: none; }
 .t-notice { position: absolute; left: 96px; right: 96px; bottom: 26px; height: 64px; display: flex; align-items: center; gap: 16px;
   font-size: 26px; color: #fff; }
 .t-notice span { background: rgba(242,143,134,.18); border: 2px solid #f28f86; padding: 8px 18px; border-radius: 12px; }
@@ -57,3 +60,14 @@
 /* Comparsa graduale dei pallini del dot cluster */
 @keyframes tDotIn { from { opacity: 0; transform: scale(.25); } 70% { opacity: 1; transform: scale(1.12); } to { opacity: 1; transform: scale(1); } }
 .t-dot-in { animation: tDotIn .45s ease-out both; transform-box: fill-box; transform-origin: center; }
+
+/* Barre verticali (colonne sottili) */
+.t-vbars { position: absolute; left: 0; right: 0; bottom: 0; }
+.t-vbars > div { position: absolute; }
+.t-vbars .base { height: 2px; background: rgba(255,255,255,.18); }
+.t-vbars .trk { background: rgba(255,255,255,.06); }
+.t-vbars .fil { overflow: hidden; display: flex; flex-direction: column-reverse; transition: height .7s cubic-bezier(.2,.7,.2,1); }
+.t-vbars .fil > div { min-height: 0; }
+.t-vbars .pct { text-align: center; font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; line-height: 1; transition: bottom .7s cubic-bezier(.2,.7,.2,1); }
+.t-vbars .lab { text-align: center; font-family: "Raleway", sans-serif; line-height: 1.2; color: #fff;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

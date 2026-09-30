@@ -146,7 +146,7 @@ export class Hub {
     if (opts.length > MAX_OPTIONS) fail(400, `Al massimo ${MAX_OPTIONS} risposte`);
     o.options = opts;
     o.multi = !!d.multi;
-    o.chart = ["bar", "pie", "dots"].includes(d.chart) ? d.chart : "bar";
+    o.chart = ["bar", "vbar", "pie", "dots"].includes(d.chart) ? d.chart : "bar";
     o.reveal = d.reveal === "click" ? "click" : "live";
     o.segmentBy = null;
     if (typeof d.segmentBy === "string" && d.segmentBy) {

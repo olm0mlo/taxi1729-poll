@@ -55,7 +55,17 @@
     kicker.appendChild(kNum); kicker.appendChild(kTxt); left.appendChild(kicker);
     var title = h("div", "t-title"); left.appendChild(title);
     var welcomeText = h("div", "t-welcome-text hidden");
-    welcomeText.innerHTML = "Inquadra il QR code con la fotocamera del telefono.<br>Durante l'evento le domande compariranno lì, in automatico.";
+    function drawWelcomeText() {
+      // istruzioni della slide di benvenuto: indirizzo e codice per chi non riesce a inquadrare il QR
+      welcomeText.innerHTML = "";
+      welcomeText.appendChild(document.createTextNode("Inquadra il QR code"));
+      welcomeText.appendChild(h("br"));
+      welcomeText.appendChild(document.createTextNode("oppure vai su "));
+      welcomeText.appendChild(h("b", null, location.host));
+      welcomeText.appendChild(h("br"));
+      welcomeText.appendChild(document.createTextNode("e inserisci il codice"));
+      welcomeText.appendChild(h("div", "t-wcode", st.code || "—"));
+    }
     left.appendChild(welcomeText);
     var chart = h("div", "t-chart"); left.appendChild(chart);
     var qr = h("div", "t-qr"); right.appendChild(qr);
@@ -71,6 +81,7 @@
     var view = null;             // grafico attualmente disegnato
     var pendingIntro = 0;        // animazione di comparsa richiesta prima che arrivassero i risultati
 
+    drawWelcomeText();
     function fit() {
       var w = root.clientWidth || window.innerWidth, hgt = root.clientHeight || window.innerHeight;
       if (!w || !hgt) return;
@@ -92,6 +103,7 @@
       join.appendChild(document.createTextNode(location.host));
       join.appendChild(h("strong", null, st.code));
       codeLine.innerHTML = ""; codeLine.appendChild(document.createTextNode("codice ")); codeLine.appendChild(h("b", null, st.code));
+      drawWelcomeText();
     }
 
     function currentRes() { return st.res && st.q && st.res.q === st.q.id ? st.res : null; }
@@ -104,7 +116,7 @@
       total.classList.toggle("hidden", welcome);
       kNum.textContent = welcome ? "00" : String(st.number).padStart(2, "0");
       kTxt.textContent = welcome ? "BENVENUTI" : (st.eventName || "SONDAGGIO");
-      if (welcome) { title.className = "t-title"; title.textContent = st.welcomeTitle || "Partecipa dal tuo smartphone"; chart.innerHTML = ""; view = null; return; }
+      if (welcome) { title.className = "t-title"; title.textContent = st.welcomeTitle || "Partecipa con il tuo smartphone"; chart.innerHTML = ""; view = null; return; }
       var q = st.q || { title: "", options: [] };
       var tt = q.title || "";
       if (title.textContent !== tt) title.textContent = tt;
@@ -127,12 +139,12 @@
       var hidden = q.reveal === "click" && !st.revealed;
       var seg = !hidden && res && res.seg ? res.seg : null;
       var ch = st.chartOverride || q.chart;
-      var type = hidden ? "hidden" : (ch === "pie" ? "pie" : ch === "dots" ? "dots" : "bars");
+      var type = hidden ? "hidden" : (ch === "pie" ? "pie" : ch === "dots" ? "dots" : ch === "vbar" ? "vbars" : "bars");
       var key = [type, q.id, n, q.options.join("\u0001"), seg ? segItems(seg).map(function (x) { return x.si; }).join(",") + "|" + (seg.title || "") : "",
         chart.clientWidth, chart.clientHeight].join("|");
       if (!view || view.key !== key) {
         chart.innerHTML = "";
-        view = (type === "hidden" ? hiddenView : type === "pie" ? pieView : type === "dots" ? dotsView : barsView)(q, seg);
+        view = (type === "hidden" ? hiddenView : type === "pie" ? pieView : type === "dots" ? dotsView : type === "vbars" ? vbarsView : barsView)(q, seg);
         view.key = key;
       }
       view.update(q, res);
@@ -238,6 +250,68 @@
           });
           clearTimeout(box._reset);
           box._reset = setTimeout(function () { rows.forEach(function (r) { r.fills.forEach(function (f) { f.style.transition = ""; }); }); }, dur + rows.length * stagger + 50);
+        }
+      };
+    }
+
+    // ---------------------------------------------------------------- barre verticali (colonne sottili)
+    function vbarsView(q, seg) {
+      var top = 0, items = seg ? segItems(seg) : null;
+      if (seg) { var lg = legend(items); chart.appendChild(lg); top = lg.offsetHeight + 12; }
+      var box = h("div", "t-vbars"); box.style.top = top + "px"; chart.appendChild(box);
+      var n = q.options.length, W = chart.clientWidth, H = chart.clientHeight - top;
+      var slot = Math.min(W / n, 300), colW = Math.min(slot * 0.28, 72);
+      var pfs = Math.round(Math.max(24, Math.min(38, slot * 0.3))), lfs = Math.round(Math.max(20, Math.min(28, slot * 0.2)));
+      var pctH = pfs + 26, labH = lfs * 2.6 + 20, chartH = Math.max(120, Math.min(H - pctH - labH, 440));
+      var y0 = Math.max(0, (H - pctH - chartH - labH) / 2), baseY = y0 + pctH + chartH, x0 = (W - slot * n) / 2;
+      var base = h("div", "base"); base.style.cssText = "left:" + x0 + "px;width:" + (slot * n) + "px;top:" + baseY + "px"; box.appendChild(base);
+      var cols = q.options.map(function (o, i) {
+        var cx = x0 + slot * i + slot / 2, x = cx - colW / 2, rad = colW / 2 + "px " + colW / 2 + "px 0 0";
+        var tr = h("div", "trk"); tr.style.cssText = "left:" + x + "px;width:" + colW + "px;top:" + (baseY - chartH) + "px;height:" + chartH + "px;border-radius:" + rad; box.appendChild(tr);
+        var f = h("div", "fil"); f.style.cssText = "left:" + x + "px;width:" + colW + "px;top:auto;bottom:" + (H - baseY) + "px;height:0px;border-radius:" + rad; box.appendChild(f);
+        var parts = (items || [{ color: PALETTE[i % PALETTE.length], si: -1 }]).map(function (it) {
+          var p = h("div"); p.style.background = it.color; p._si = it.si; if (it.si < 0) p.style.flex = "1 1 auto"; f.appendChild(p); return p;
+        });
+        var pc = h("div", "pct", "0%"); pc.style.cssText = "left:" + (cx - slot / 2) + "px;width:" + slot + "px;bottom:" + (H - baseY + 14) + "px;font-size:" + pfs + "px"; box.appendChild(pc);
+        var lb = h("div", "lab", T.optLabel(o, i)); lb.style.cssText = "left:" + (cx - slot / 2 + 10) + "px;width:" + (slot - 20) + "px;top:" + (baseY + 18) + "px;font-size:" + lfs + "px"; box.appendChild(lb);
+        return { f: f, parts: parts, pc: pc };
+      });
+      function heights(q, res) {
+        var counts = countsOf(q, res), max = Math.max.apply(null, counts.concat([1]));
+        return counts.map(function (c) { return c / max * chartH; });
+      }
+      function setParts(res, i, c) {
+        cols[i].parts.forEach(function (p) {
+          if (p._si < 0) return;
+          var v = res && res.seg ? res.seg.counts[p._si][i] : 0;
+          p.style.flex = "0 0 " + (c ? v / c * 100 : 0) + "%";
+        });
+      }
+      function place(i, hgt) { cols[i].f.style.height = hgt + "px"; cols[i].pc.style.bottom = (H - baseY + 14 + hgt) + "px"; }
+      return {
+        update: function (q, res) {
+          var counts = countsOf(q, res), tot = res ? res.total : 0, hs = heights(q, res);
+          cols.forEach(function (c, i) { setParts(res, i, counts[i]); place(i, hs[i]); tween(c.pc, pct(counts[i], tot), fmtPct); });
+        },
+        arm: function () {
+          cols.forEach(function (c, i) { c.f.style.transition = c.pc.style.transition = "none"; place(i, 0); tween(c.pc, 0, fmtPct); });
+          void box.offsetWidth;
+          cols.forEach(function (c) { c.f.style.transition = c.pc.style.transition = ""; });
+        },
+        // Le colonne crescono da zero una dopo l'altra (meno di un secondo in tutto).
+        intro: function (q, res) {
+          var counts = countsOf(q, res), tot = res ? res.total : 0, hs = heights(q, res);
+          var stagger = cols.length > 1 ? Math.min(90, 300 / (cols.length - 1)) : 0, dur = 600;
+          cols.forEach(function (c, i) { c.f.style.transition = c.pc.style.transition = "none"; setParts(res, i, counts[i]); place(i, 0); });
+          void box.offsetWidth;
+          cols.forEach(function (c, i) {
+            var d = Math.round(i * stagger), tr = dur + "ms " + BAR_EASE + " " + d + "ms";
+            c.f.style.transition = "height " + tr; c.pc.style.transition = "bottom " + tr;
+            place(i, hs[i]);
+            tween(c.pc, pct(counts[i], tot), fmtPct, { from: 0, dur: dur, delay: d, force: true });
+          });
+          clearTimeout(box._reset);
+          box._reset = setTimeout(function () { cols.forEach(function (c) { c.f.style.transition = c.pc.style.transition = ""; }); }, dur + cols.length * stagger + 50);
         }
       };
     }

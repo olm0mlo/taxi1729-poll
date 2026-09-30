@@ -26,7 +26,8 @@
       '    <label><input type="radio" name="qe-multi-' + n + '" value="0">Una risposta</label>' +
       '    <label><input type="radio" name="qe-multi-' + n + '" value="1">Più risposte</label></div></div>' +
       '  <div><label class="lbl">Grafico</label><div class="seg">' +
-      '    <label><input type="radio" name="qe-chart-' + n + '" value="bar">Barre</label>' +
+      '    <label><input type="radio" name="qe-chart-' + n + '" value="bar">Barre orizzontali</label>' +
+      '    <label><input type="radio" name="qe-chart-' + n + '" value="vbar">Barre verticali</label>' +
       '    <label><input type="radio" name="qe-chart-' + n + '" value="pie">Torta</label>' +
       '    <label><input type="radio" name="qe-chart-' + n + '" value="dots">Dot cluster</label></div></div>' +
       '  <div><label class="lbl">Risultati</label><div class="seg">' +
