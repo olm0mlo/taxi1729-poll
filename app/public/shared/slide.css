@@ -65,7 +65,6 @@
 .t-vbars { position: absolute; left: 0; right: 0; bottom: 0; }
 .t-vbars > div { position: absolute; }
 .t-vbars .base { height: 2px; background: rgba(255,255,255,.18); }
-.t-vbars .trk { background: rgba(255,255,255,.06); }
 .t-vbars .fil { overflow: hidden; display: flex; flex-direction: column-reverse; transition: height .7s cubic-bezier(.2,.7,.2,1); }
 .t-vbars .fil > div { min-height: 0; }
 .t-vbars .pct { text-align: center; font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; line-height: 1; transition: bottom .7s cubic-bezier(.2,.7,.2,1); }

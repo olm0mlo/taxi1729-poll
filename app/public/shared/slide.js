@@ -267,7 +267,6 @@
       var base = h("div", "base"); base.style.cssText = "left:" + x0 + "px;width:" + (slot * n) + "px;top:" + baseY + "px"; box.appendChild(base);
       var cols = q.options.map(function (o, i) {
         var cx = x0 + slot * i + slot / 2, x = cx - colW / 2, rad = colW / 2 + "px " + colW / 2 + "px 0 0";
-        var tr = h("div", "trk"); tr.style.cssText = "left:" + x + "px;width:" + colW + "px;top:" + (baseY - chartH) + "px;height:" + chartH + "px;border-radius:" + rad; box.appendChild(tr);
         var f = h("div", "fil"); f.style.cssText = "left:" + x + "px;width:" + colW + "px;top:auto;bottom:" + (H - baseY) + "px;height:0px;border-radius:" + rad; box.appendChild(f);
         var parts = (items || [{ color: PALETTE[i % PALETTE.length], si: -1 }]).map(function (it) {
           var p = h("div"); p.style.background = it.color; p._si = it.si; if (it.si < 0) p.style.flex = "1 1 auto"; f.appendChild(p); return p;
