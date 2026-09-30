@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Taxi1729 Poll · Pannello</title>
+<link rel="icon" href="/assets/icon-32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Raleway:wght@300;400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/shared/theme.css">
+<link rel="stylesheet" href="/shared/slide.css">
+<style>
+  body { background: var(--paper); min-height: 100vh; }
+  .top { background: var(--navy); color: #fff; }
+  .top .wrap { display: flex; align-items: center; gap: 22px; padding: 12px 16px; flex-wrap: wrap; }
+  .top img { height: 38px; }
+  .top nav { display: flex; gap: 4px; flex: 1; flex-wrap: wrap; }
+  .top nav a { color: #cfdcdf; text-decoration: none; padding: 7px 11px; border-radius: 7px; font-weight: 600; font-size: 14px; }
+  .top nav a.on, .top nav a:hover { background: rgba(255,255,255,.1); color: #fff; }
+  .top .who { font-size: 13px; color: #9fb3b9; display: flex; align-items: center; gap: 10px; }
+  .top .who button { background: none; border: 1px solid rgba(255,255,255,.3); color: #fff; border-radius: 7px; padding: 5px 10px; cursor: pointer; font: inherit; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  main { padding: 26px 16px 70px; }
+  h1.page { font-size: 26px; margin-bottom: 4px; }
+  .bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 18px 0; }
+  .grow { flex: 1; }
+  .list { display: flex; flex-direction: column; gap: 10px; }
+  .item { padding: 14px 16px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .item .main { flex: 1; min-width: 220px; }
+  .item .ttl { font-weight: 700; font-size: 16px; }
+  .item a.ttl { color: var(--ink); text-decoration: none; }
+  .item a.ttl:hover { text-decoration: underline; }
+  .chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: #eef1f1; color: var(--ink-2); margin-right: 4px; }
+  .chip.live { background: #fdecea; color: var(--danger); }
+  .chip.yellow { background: #f7f8cf; color: #5e5f1d; }
+  .qnum { width: 34px; height: 34px; border-radius: 50%; background: var(--navy); color: var(--yellow); display: grid; place-items: center; font-weight: 800; flex: none; }
+  .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .box { padding: 22px; }
+  .login { max-width: 400px; margin: 9vh auto 0; }
+  .preview { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; background: var(--navy); }
+  .modal { position: fixed; inset: 0; background: rgba(2,21,31,.6); display: flex; align-items: flex-start; justify-content: center; padding: 4vh 16px; z-index: 10; overflow: auto; }
+  .modal .card { width: 100%; max-width: 980px; padding: 20px; }
+  .editor-card { padding: 20px; margin-top: 10px; border: 2px solid var(--sky); }
+  .field-inline { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+  .field-inline > div { flex: 1; min-width: 180px; }
+  .empty { text-align: center; padding: 40px 16px; color: var(--ink-2); }
+  .tabs { display: flex; gap: 6px; margin-top: 12px; }
+  .tabs button { font: 600 14px "Inter", sans-serif; padding: 8px 14px; border-radius: 8px 8px 0 0; border: 1px solid var(--line); border-bottom: 0; background: #e9ecec; cursor: pointer; }
+  .tabs button.on { background: #fff; }
+  .tabpane { background: #fff; border: 1px solid var(--line); border-radius: 0 10px 10px 10px; padding: 6px 18px 12px; }
+  .tabpane li { margin-bottom: 6px; }
+  @media (max-width: 640px) { .top nav { order: 3; width: 100%; } }
+</style>
+</head>
+<body class="ui">
+<div class="top hidden" id="top"><div class="wrap">
+  <a href="#/"><img src="/assets/logo-negativo.png" alt="Taxi1729"></a>
+  <nav>
+    <a href="#/" data-r="events">Eventi</a>
+    <a href="#/users" data-r="users">Utenti</a>
+    <a href="#/install" data-r="install">Installa add-in</a>
+  </nav>
+  <div class="who"><span id="who"></span><button id="logout">Esci</button></div>
+</div></div>
+<main class="wrap" id="main"></main>
+<div id="modal"></div>
+
+<script src="/shared/api.js"></script>
+<script src="/shared/slide.js"></script>
+<script src="/shared/editor.js"></script>
+<script>
+(function () {
+  var main = document.getElementById("main"), modal = document.getElementById("modal");
+  var esc = T.esc, me = null, liveConn = null;
+  T.loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js");
+
+  function chartName(c) { return { bar: "Barre", pie: "Torta", dots: "Dot cluster" }[c] || "Barre"; }
+  function fmtDate(t) { return new Date(t).toLocaleDateString("it-IT", { day: "numeric", month: "short", year: "numeric" }); }
+  function errBox(e) { return '<div class="err">' + esc(e.message || e) + '</div>'; }
+  function confirmDo(msg) { return window.confirm(msg); }
+  function closeLive() { if (liveConn) { liveConn.close(); liveConn = null; } }
+  function handleAuthError(e) { if (e.status === 401) { T.setToken(null); start(); return true; } return false; }
+
+  // ------------------------------------------------------------------ avvio e accesso
+  function start() {
+    closeLive();
+    T.api("status").then(function (s) {
+      if (s.needsSetup) return renderSetup();
+      if (!T.token()) return renderLogin();
+      T.api("me").then(function (d) { me = d.user; showApp(); }, function (e) { T.setToken(null); renderLogin(); });
+    }, function (e) { main.innerHTML = '<div class="login card box">' + errBox(e) + '</div>'; });
+  }
+  function showApp() {
+    document.getElementById("top").classList.remove("hidden");
+    document.getElementById("who").textContent = me.name;
+    route();
+  }
+  document.getElementById("logout").onclick = function () {
+    T.api("logout", { method: "POST" }).catch(function () {}).then(function () { T.setToken(null); location.hash = "#/"; location.reload(); });
+  };
+
+  function renderLogin() {
+    document.getElementById("top").classList.add("hidden");
+    main.innerHTML = '<div class="login card box"><img src="/assets/logo-positivo.png" alt="Taxi1729" style="height:50px">' +
+      '<h1 class="page" style="margin-top:18px">Accedi</h1><p class="muted" style="margin:0">Pannello di Taxi1729 Poll</p>' +
+      '<form id="f"><label class="lbl">Email</label><input type="email" id="em" autocomplete="username" required>' +
+      '<label class="lbl">Password</label><input type="password" id="pw" autocomplete="current-password" required>' +
+      '<div id="er"></div><div class="qe-actions"><button class="btn">Accedi</button></div></form></div>';
+    document.getElementById("f").onsubmit = function (ev) {
+      ev.preventDefault();
+      T.api("login", { body: { email: document.getElementById("em").value, password: document.getElementById("pw").value } })
+        .then(function (d) { T.setToken(d.token); me = d.user; showApp(); }, function (e) { document.getElementById("er").innerHTML = errBox(e); });
+    };
+  }
+  function renderSetup() {
+    main.innerHTML = '<div class="login card box"><img src="/assets/logo-positivo.png" alt="Taxi1729" style="height:50px">' +
+      '<h1 class="page" style="margin-top:18px">Primo avvio</h1><p class="muted" style="margin:0">Crea il primo utente. Gli altri li potrai aggiungere dal pannello.</p>' +
+      '<form id="f"><label class="lbl">Nome</label><input type="text" id="nm" required>' +
+      '<label class="lbl">Email</label><input type="email" id="em" autocomplete="username" required>' +
+      '<label class="lbl">Password</label><input type="password" id="pw" autocomplete="new-password" minlength="8" required><div class="hint">Almeno 8 caratteri.</div>' +
+      '<div id="er"></div><div class="qe-actions"><button class="btn">Crea utente e accedi</button></div></form></div>';
+    document.getElementById("f").onsubmit = function (ev) {
+      ev.preventDefault();
+      T.api("setup", { body: { name: document.getElementById("nm").value, email: document.getElementById("em").value, password: document.getElementById("pw").value } })
+        .then(function (d) { T.setToken(d.token); me = d.user; showApp(); }, function (e) { document.getElementById("er").innerHTML = errBox(e); });
+    };
+  }
+
+  // ------------------------------------------------------------------ navigazione
+  window.addEventListener("hashchange", function () { if (me) route(); });
+  function route() {
+    closeLive(); modal.innerHTML = "";
+    var h = location.hash.replace(/^#\/?/, "").split("/");
+    var sec = h[0] === "event" ? "events" : (h[0] || "events");
+    Array.prototype.forEach.call(document.querySelectorAll(".top nav a"), function (a) { a.classList.toggle("on", a.getAttribute("data-r") === sec); });
+    if (h[0] === "event" && h[1]) return renderEvent(h[1]);
+    if (h[0] === "users") return renderUsers();
+    if (h[0] === "install") return renderInstall();
+    renderEvents();
+  }
+
+  // ------------------------------------------------------------------ elenco eventi
+  function renderEvents() {
+    main.innerHTML = '<h1 class="page">Eventi</h1><p class="muted" style="margin:0">Tutti gli eventi del team.</p>' +
+      '<div class="bar"><input type="text" id="newName" placeholder="Nome del nuovo evento" style="max-width:360px"><button class="btn" id="create">+ Crea evento</button></div>' +
+      '<div id="er"></div><div class="list" id="list"><div class="muted">Caricamento…</div></div>';
+    document.getElementById("create").onclick = function () {
+      var name = document.getElementById("newName").value.trim();
+      T.api("events", { body: { name: name || "Nuovo evento" } }).then(function (d) { location.hash = "#/event/" + d.event.id; },
+        function (e) { if (!handleAuthError(e)) document.getElementById("er").innerHTML = errBox(e); });
+    };
+    document.getElementById("newName").onkeydown = function (e) { if (e.key === "Enter") document.getElementById("create").click(); };
+    T.api("events").then(function (d) {
+      var list = document.getElementById("list");
+      if (!d.events.length) { list.innerHTML = '<div class="card empty">Ancora nessun evento. Creane uno per iniziare.</div>'; return; }
+      list.innerHTML = d.events.map(function (e) {
+        return '<div class="card item"><div class="main"><a class="ttl" href="#/event/' + esc(e.id) + '">' + esc(e.name) + '</a><div class="muted" style="font-size:13px;margin-top:3px">' +
+          '<span class="chip yellow">Codice ' + esc(e.code) + '</span><span class="chip">' + e.questions + (e.questions === 1 ? ' domanda' : ' domande') + '</span>' +
+          (e.presenting ? '<span class="chip live">● In presentazione: ' + esc(e.presenting.by) + '</span>' : '') +
+          ' creato da ' + esc(e.author || "—") + ' · modificato il ' + fmtDate(e.updated) + '</div></div>' +
+          '<a class="btn ghost small" href="#/event/' + esc(e.id) + '">Apri</a></div>';
+      }).join("");
+    }, function (e) { if (!handleAuthError(e)) document.getElementById("list").innerHTML = errBox(e); });
+  }
+
+  // ------------------------------------------------------------------ dettaglio evento
+  function renderEvent(id) {
+    var state = { event: null, questions: [], editing: null, results: {} };
+    main.innerHTML = '<div class="muted">Caricamento…</div>';
+    function load() {
+      return T.api("events/" + id).then(function (d) { state.event = d.event; state.questions = d.questions; draw(); },
+        function (e) { if (!handleAuthError(e)) main.innerHTML = errBox(e) + '<p><a href="#/">← Torna agli eventi</a></p>'; });
+    }
+    load().then(function () {
+      if (!state.event) return;
+      liveConn = T.live({ role: "presenter", event: id, token: T.token() }, function (m) {
+        if (m.t === "results") {
+          state.results[m.q] = m;
+          var q = state.questions.find(function (x) { return x.id === m.q; });
+          if (q && q.votes !== m.total) { q.votes = m.total; var el = document.getElementById("votes-" + q.id); if (el) el.textContent = votesLabel(m.total); }
+          if (openPreview && openPreview.qid === m.q) openPreview.slide.setResults(m);
+        } else if (m.t === "live") {
+          state.event.presenting = m.q !== undefined && m.by ? { by: m.by, q: m.q } : null;
+          var lv = document.getElementById("liveInfo"); if (lv) lv.innerHTML = liveLabel();
+        }
+      });
+    });
+    var openPreview = null;
+    function votesLabel(n) { return n + (n === 1 ? " risposta" : " risposte"); }
+    function liveLabel() {
+      var p = state.event.presenting;
+      if (!p) return "";
+      var q = state.questions.find(function (x) { return x.id === p.q; });
+      return '<span class="chip live">● In presentazione da ' + esc(p.by) + (q ? ': domanda ' + q.pos : '') + '</span>';
+    }
+
+    function draw() {
+      var ev = state.event;
+      main.innerHTML =
+        '<p style="margin:0 0 6px"><a href="#/">← Eventi</a></p>' +
+        '<div class="field-inline"><div><label class="lbl" style="margin-top:0">Nome evento</label><input type="text" id="evName" maxlength="150"></div>' +
+        '<div style="max-width:170px"><label class="lbl" style="margin-top:0">Codice per il pubblico</label><input type="text" id="evCode" maxlength="10"></div>' +
+        '<button class="btn ghost" id="evSave">Salva</button></div><div id="evErr"></div>' +
+        '<div class="bar"><span id="liveInfo">' + liveLabel() + '</span><span class="grow"></span>' +
+        '<a class="btn" href="/present?event=' + esc(ev.id) + '" target="_blank">▶ Presenta nel browser</a>' +
+        '<a class="btn ghost" id="exp" href="#">Esporta risultati (Excel)</a>' +
+        '<button class="btn danger" id="clearAll">Cancella tutti i risultati</button>' +
+        '<button class="btn danger" id="delEv">Elimina evento</button></div>' +
+        '<p class="muted" style="margin:-4px 0 16px">Link per il pubblico: <a href="' + esc(T.joinUrl(ev.code)) + '" target="_blank">' + esc(T.joinUrl(ev.code)) + '</a></p>' +
+        '<div class="list" id="qlist"></div>' +
+        '<div id="newBox"></div>';
+      document.getElementById("evName").value = ev.name;
+      document.getElementById("evCode").value = ev.code;
+      document.getElementById("evSave").onclick = function () {
+        T.api("events/" + id, { method: "PATCH", body: { name: document.getElementById("evName").value, code: document.getElementById("evCode").value } })
+          .then(function (d) { state.event = d.event; draw(); }, function (e) { document.getElementById("evErr").innerHTML = errBox(e); });
+      };
+      document.getElementById("exp").onclick = function (e) {
+        e.preventDefault(); location.href = "/api/events/" + id + "/export.csv?token=" + encodeURIComponent(T.token());
+      };
+      document.getElementById("clearAll").onclick = function () {
+        if (!confirmDo("Cancellare TUTTI i risultati di questo evento? Le domande restano, i voti vengono eliminati definitivamente.")) return;
+        T.api("events/" + id + "/votes", { method: "DELETE" }).then(load);
+      };
+      document.getElementById("delEv").onclick = function () {
+        if (!confirmDo("Eliminare definitivamente l'evento \"" + ev.name + "\" con tutte le domande e i risultati?")) return;
+        T.api("events/" + id, { method: "DELETE" }).then(function () { location.hash = "#/"; });
+      };
+      drawQuestions();
+    }
+
+    function drawQuestions() {
+      var box = document.getElementById("qlist");
+      box.innerHTML = "";
+      if (!state.questions.length) box.innerHTML = '<div class="card empty">Nessuna domanda. Aggiungi la prima qui sotto, oppure direttamente da PowerPoint.</div>';
+      state.questions.forEach(function (q, idx) {
+        var el = document.createElement("div");
+        el.className = "card item";
+        el.innerHTML = '<div class="qnum">' + (idx + 1) + '</div><div class="main"><div class="ttl">' + esc(q.data.title || "(domanda senza testo)") + '</div>' +
+          '<div style="margin-top:4px"><span class="chip">' + q.data.options.length + ' opzioni</span><span class="chip">' + (q.data.multi ? "Scelta multipla" : "Scelta singola") + '</span>' +
+          '<span class="chip">' + chartName(q.data.chart) + '</span><span class="chip">' + (q.data.reveal === "click" ? "Risultati su click" : "Risultati live") + '</span>' +
+          (q.data.segmentBy ? '<span class="chip">Segmentata</span>' : '') + '<span class="chip yellow" id="votes-' + esc(q.id) + '">' + votesLabel(q.votes) + '</span></div></div>' +
+          '<div class="acts"><button class="btn ghost small" data-a="edit">Modifica</button><button class="btn ghost small" data-a="res">Risultati</button>' +
+          '<button class="btn ghost small" data-a="up" title="Sposta su"' + (idx ? '' : ' disabled') + '>↑</button>' +
+          '<button class="btn ghost small" data-a="down" title="Sposta giù"' + (idx < state.questions.length - 1 ? '' : ' disabled') + '>↓</button>' +
+          '<button class="btn ghost small" data-a="dup">Duplica</button><button class="btn danger small" data-a="clear">Svuota</button><button class="btn danger small" data-a="del">Elimina</button></div>';
+        el.querySelector('[data-a="edit"]').onclick = function () { openEditor(q, el); };
+        el.querySelector('[data-a="res"]').onclick = function () { openResults(q, idx + 1); };
+        el.querySelector('[data-a="up"]').onclick = function () { move(idx, -1); };
+        el.querySelector('[data-a="down"]').onclick = function () { move(idx, 1); };
+        el.querySelector('[data-a="dup"]').onclick = function () { T.api("questions/" + q.id + "/duplicate", { method: "POST" }).then(load); };
+        el.querySelector('[data-a="clear"]').onclick = function () {
+          if (confirmDo("Cancellare i risultati di questa domanda?")) T.api("questions/" + q.id + "/votes", { method: "DELETE" }).then(load);
+        };
+        el.querySelector('[data-a="del"]').onclick = function () {
+          if (confirmDo("Eliminare la domanda e i suoi risultati? Le slide di PowerPoint che la usano mostreranno un avviso.")) T.api("questions/" + q.id, { method: "DELETE" }).then(load);
+        };
+        box.appendChild(el);
+      });
+      var nb = document.getElementById("newBox");
+      nb.innerHTML = '<div class="bar"><button class="btn" id="addQ">+ Nuova domanda</button></div>';
+      document.getElementById("addQ").onclick = function () { openEditor(null, nb); };
+    }
+    function siblingsBefore(q) {
+      var list = state.questions, end = q ? list.indexOf(q) : list.length;
+      return list.slice(0, end).map(function (x, i) { return { id: x.id, pos: i + 1, title: x.data.title, multi: x.data.multi }; });
+    }
+    function openEditor(q, anchor) {
+      var card = document.createElement("div"); card.className = "card editor-card";
+      if (q) { anchor.replaceWith(card); } else { anchor.innerHTML = ""; anchor.appendChild(card); }
+      card.innerHTML = '<h3>' + (q ? "Modifica domanda" : "Nuova domanda") + ' <span class="muted" style="font-weight:400;font-size:14px">· Risposta multipla</span></h3><div></div>';
+      T.QuestionEditor(card.lastChild, {
+        data: q ? q.data : null, siblings: siblingsBefore(q), saveLabel: q ? "Salva modifiche" : "Crea domanda",
+        onCancel: function () { drawQuestions(); },
+        onSave: function (data) {
+          return (q ? T.api("questions/" + q.id, { method: "PATCH", body: { data: data } }) : T.api("events/" + id + "/questions", { body: { data: data } })).then(load);
+        }
+      });
+      card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+    function move(idx, dir) {
+      var ids = state.questions.map(function (q) { return q.id; });
+      var j = idx + dir; if (j < 0 || j >= ids.length) return;
+      var t = ids[idx]; ids[idx] = ids[j]; ids[j] = t;
+      T.api("events/" + id + "/reorder", { body: { ids: ids } }).then(load);
+    }
+    function openResults(q, number) {
+      modal.innerHTML = '<div class="modal"><div class="card"><div class="bar" style="margin-top:0"><h3 class="grow">Risultati · domanda ' + number + '</h3>' +
+        '<button class="btn ghost small" id="mClose">Chiudi</button></div><div class="preview" id="pv"></div>' +
+        '<p class="muted" style="margin-bottom:0">Anteprima di come appare la slide. I numeri si aggiornano in tempo reale.</p></div></div>';
+      var slide = T.Slide(document.getElementById("pv"));
+      slide.setEvent(state.event);
+      slide.setQuestion(Object.assign({ id: q.id }, q.data), number);
+      slide.setRevealed(true);
+      openPreview = { qid: q.id, slide: slide };
+      if (!window.QRCode) T.loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js", function () { slide.redrawQr(); });
+      T.api("questions/" + q.id + "/results").then(function (r) { slide.setResults(r); });
+      function close() { modal.innerHTML = ""; openPreview = null; }
+      document.getElementById("mClose").onclick = close;
+      modal.firstChild.onclick = function (e) { if (e.target === modal.firstChild) close(); };
+    }
+  }
+
+  // ------------------------------------------------------------------ utenti
+  function renderUsers() {
+    main.innerHTML = '<h1 class="page">Utenti</h1><p class="muted" style="margin:0">Tutti gli utenti vedono e gestiscono tutti gli eventi.</p>' +
+      '<div class="list" id="ul" style="margin-top:18px"></div>' +
+      '<div class="card box" style="margin-top:22px"><h3>Aggiungi un utente</h3><form id="fa"><div class="field-inline">' +
+      '<div><label class="lbl">Nome</label><input type="text" id="an" required></div><div><label class="lbl">Email</label><input type="email" id="ae" required></div>' +
+      '<div><label class="lbl">Password iniziale</label><input type="text" id="ap" minlength="8" required></div></div>' +
+      '<div class="hint">Comunica la password al collega: potrà cambiarla da questa pagina dopo l\'accesso.</div><div id="aer"></div>' +
+      '<div class="qe-actions"><button class="btn">Aggiungi utente</button></div></form></div>' +
+      '<div class="card box" style="margin-top:22px"><h3>Cambia la tua password</h3><form id="fp"><div class="field-inline">' +
+      '<div><label class="lbl">Password attuale</label><input type="password" id="pc" autocomplete="current-password" required></div>' +
+      '<div><label class="lbl">Nuova password</label><input type="password" id="pn" autocomplete="new-password" minlength="8" required></div></div>' +
+      '<div id="per"></div><div class="qe-actions"><button class="btn">Cambia password</button></div></form></div>';
+    function load() {
+      T.api("users").then(function (d) {
+        document.getElementById("ul").innerHTML = d.users.map(function (u) {
+          return '<div class="card item"><div class="main"><div class="ttl">' + esc(u.name) + (u.id === me.id ? ' <span class="chip">tu</span>' : '') + '</div><div class="muted">' + esc(u.email) + '</div></div>' +
+            (u.id === me.id ? '' : '<button class="btn danger small" data-id="' + esc(u.id) + '">Rimuovi</button>') + '</div>';
+        }).join("");
+        Array.prototype.forEach.call(document.querySelectorAll("#ul [data-id]"), function (b) {
+          b.onclick = function () { if (confirmDo("Rimuovere questo utente? Non potrà più accedere.")) T.api("users/" + b.getAttribute("data-id"), { method: "DELETE" }).then(load); };
+        });
+      }, function (e) { handleAuthError(e); });
+    }
+    load();
+    document.getElementById("fa").onsubmit = function (ev) {
+      ev.preventDefault();
+      T.api("users", { body: { name: document.getElementById("an").value, email: document.getElementById("ae").value, password: document.getElementById("ap").value } })
+        .then(function () { document.getElementById("fa").reset(); document.getElementById("aer").innerHTML = ""; load(); },
+          function (e) { document.getElementById("aer").innerHTML = errBox(e); });
+    };
+    document.getElementById("fp").onsubmit = function (ev) {
+      ev.preventDefault();
+      T.api("me/password", { body: { current: document.getElementById("pc").value, password: document.getElementById("pn").value } })
+        .then(function () { document.getElementById("fp").reset(); document.getElementById("per").innerHTML = '<div style="color:var(--ok);font-weight:600;margin-top:10px">Password aggiornata.</div>'; },
+          function (e) { document.getElementById("per").innerHTML = errBox(e); });
+    };
+  }
+
+  // ------------------------------------------------------------------ installazione add-in
+  function manifestXml() {
+    var o = location.origin;
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' +
+      '<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"\n' +
+      '           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"\n' +
+      '           xsi:type="ContentApp">\n' +
+      '  <Id>18c9174e-0869-4b99-aae4-31ee7f8e2ff3</Id>\n' +
+      '  <Version>1.0.0.0</Version>\n' +
+      '  <ProviderName>Taxi1729</ProviderName>\n' +
+      '  <DefaultLocale>it-IT</DefaultLocale>\n' +
+      '  <DisplayName DefaultValue="Taxi1729 Poll" />\n' +
+      '  <Description DefaultValue="Sondaggi live per gli eventi Taxi1729" />\n' +
+      '  <IconUrl DefaultValue="' + o + '/assets/icon-32.png" />\n' +
+      '  <HighResolutionIconUrl DefaultValue="' + o + '/assets/icon-64.png" />\n' +
+      '  <SupportUrl DefaultValue="' + o + '/admin" />\n' +
+      '  <AppDomains>\n    <AppDomain>' + o + '</AppDomain>\n  </AppDomains>\n' +
+      '  <Hosts>\n    <Host Name="Presentation" />\n  </Hosts>\n' +
+      '  <DefaultSettings>\n    <SourceLocation DefaultValue="' + o + '/addin" />\n' +
+      '    <RequestedWidth>960</RequestedWidth>\n    <RequestedHeight>540</RequestedHeight>\n  </DefaultSettings>\n' +
+      '  <Permissions>ReadWriteDocument</Permissions>\n' +
+      '  <AllowSnapshot>true</AllowSnapshot>\n' +
+      '</OfficeApp>\n';
+  }
+  function renderInstall() {
+    main.innerHTML = '<h1 class="page">Installa l\'add-in PowerPoint</h1>' +
+      '<p class="muted">L\'add-in si installa una volta per computer. Se avevi installato il prototipo, puoi lasciarlo: questo compare come <b>Taxi1729 Poll</b> accanto a <b>Taxi1729 Poll (prototipo)</b>.</p>' +
+      '<div class="bar"><button class="btn" id="dl">Scarica taxi1729-poll.xml</button></div>' +
+      '<div class="tabs"><button class="on" data-t="win">Windows</button><button data-t="mac">Mac</button></div>' +
+      '<div class="tabpane" id="win"><ol>' +
+      '<li>Copia <code>taxi1729-poll.xml</code> nella stessa cartella condivisa usata per il prototipo (ad esempio <code>C:\\Taxi1729Addin</code>). Puoi lasciare anche il vecchio file.</li>' +
+      '<li>Chiudi e riapri PowerPoint.</li>' +
+      '<li><b>Home › Componenti aggiuntivi › Avanzate…</b> (o <b>Altri componenti aggiuntivi</b>) › scheda <b>CARTELLA CONDIVISA</b> › <b>Taxi1729 Poll</b> › <b>Aggiungi</b>.</li></ol></div>' +
+      '<div class="tabpane hidden" id="mac"><ol>' +
+      '<li>Chiudi PowerPoint (Cmd+Q).</li>' +
+      '<li>Nel Finder premi <b>Cmd+Maiusc+G</b> e vai in <code>~/Library/Containers/com.microsoft.Powerpoint/Data/Documents/wef</code>.</li>' +
+      '<li>Copia dentro <code>taxi1729-poll.xml</code>, poi riapri PowerPoint.</li>' +
+      '<li><b>Home › Componenti aggiuntivi</b> e scegli <b>Taxi1729 Poll</b>.</li></ol></div>' +
+      '<h3 style="margin-top:26px">Come si usa</h3><ol>' +
+      '<li>Inserisci l\'add-in in una slide: il riquadro si allarga da solo a tutta la slide.</li>' +
+      '<li>Accedi con lo stesso utente del pannello, scegli l\'evento e poi la domanda (o creane una nuova).</li>' +
+      '<li>Per la slide iniziale con il solo QR code scegli <b>Benvenuto</b>.</li></ol>';
+    document.getElementById("dl").onclick = function () {
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([manifestXml()], { type: "application/xml" }));
+      a.download = "taxi1729-poll.xml"; document.body.appendChild(a); a.click(); a.remove();
+    };
+    var tabs = document.querySelectorAll(".tabs button");
+    Array.prototype.forEach.call(tabs, function (b) {
+      b.onclick = function () { Array.prototype.forEach.call(tabs, function (x) { x.classList.toggle("on", x === b); document.getElementById(x.getAttribute("data-t")).classList.toggle("hidden", x !== b); }); };
+    });
+    if (/Mac/.test(navigator.platform)) tabs[1].click();
+  }
+
+  start();
+})();
+</script>
+</body>
+</html>

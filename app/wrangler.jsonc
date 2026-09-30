@@ -1,0 +1,24 @@
+// Configurazione Cloudflare di Taxi1729 Poll.
+// Cloudflare legge questo file a ogni pubblicazione: di solito non va modificato a mano.
+{
+  "name": "taxi1729-poll",
+  "main": "src/worker.js",
+  "compatibility_date": "2025-09-01",
+
+  // Pagine web (pannello, pubblico, add-in) servite direttamente da Cloudflare.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+
+  // Il "cuore" del sistema: un Durable Object che conserva dati e collegamenti in tempo reale.
+  "durable_objects": {
+    "bindings": [{ "name": "HUB", "class_name": "Hub" }]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Hub"] }
+  ],
+
+  // Registro degli errori consultabile dal pannello Cloudflare.
+  "observability": { "enabled": true }
+}

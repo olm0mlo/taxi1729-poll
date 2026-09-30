@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Taxi1729 Poll · Presentazione</title>
+<link rel="icon" href="/assets/icon-32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Raleway:wght@300;400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="/shared/theme.css">
+<link rel="stylesheet" href="/shared/slide.css">
+<style>
+  html, body { height: 100%; background: #02151f; overflow: hidden; }
+  #slide { position: absolute; inset: 0; }
+  .ctrl { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; gap: 6px; align-items: center;
+    background: rgba(255,255,255,.95); padding: 6px; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.3); transition: opacity .3s; z-index: 5; }
+  .ctrl.idle { opacity: 0; }
+  .ctrl .pos { font-weight: 700; padding: 0 10px; font-variant-numeric: tabular-nums; }
+  .ctrl .dot { width: 9px; height: 9px; border-radius: 50%; background: #aaa; margin-left: 6px; }
+  .ctrl .dot.on { background: #2f9e62; }
+  .over { position: fixed; inset: 0; background: rgba(2,21,31,.85); display: grid; place-items: center; z-index: 9; }
+  .over .card { max-width: 440px; padding: 24px; }
+</style>
+</head>
+<body class="ui">
+<div id="slide"></div>
+<div class="ctrl hidden" id="ctrl">
+  <button class="btn ghost small" id="prev" title="Indietro (←)">←</button>
+  <span class="pos" id="pos">–</span>
+  <button class="btn ghost small" id="next" title="Avanti (→)">→</button>
+  <button class="btn small hidden" id="reveal" title="Mostra le risposte (R)">Mostra le risposte</button>
+  <button class="btn ghost small" id="fs" title="Schermo intero (F)">⛶</button>
+  <span class="dot" id="netDot" title="Collegamento"></span>
+</div>
+<div id="over"></div>
+
+<script src="/shared/api.js"></script>
+<script src="/shared/slide.js"></script>
+<script>
+(function () {
+  var eventId = new URLSearchParams(location.search).get("event");
+  var over = document.getElementById("over"), esc = T.esc;
+  var slide = T.Slide(document.getElementById("slide"));
+  var ev = null, questions = [], idx = 0, conn = null, beat = null, live = { q: null, revealed: false }, force = false, results = {};
+  T.loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js", function () { slide.redrawQr(); });
+
+  function overlay(html) { over.innerHTML = html ? '<div class="over"><div class="card">' + html + '</div></div>' : ""; }
+  if (!T.token()) { overlay('<h3>Accesso richiesto</h3><p>Accedi dal <a href="/admin">pannello</a> e poi riapri la presentazione.</p>'); return; }
+  if (!eventId) { overlay('<h3>Nessun evento</h3><p>Apri la presentazione dal <a href="/admin">pannello</a>.</p>'); return; }
+
+  T.api("events/" + eventId).then(function (d) {
+    ev = d.event; questions = d.questions; document.title = ev.name + " · Presentazione";
+    slide.setEvent(ev);
+    document.getElementById("ctrl").classList.remove("hidden");
+    conn = T.live({ role: "presenter", event: ev.id, token: T.token() }, onMsg, function (ok) {
+      document.getElementById("netDot").classList.toggle("on", ok);
+      if (ok) announce();
+    });
+    go(0);
+  }, function (e) { overlay("<h3>Impossibile aprire l'evento</h3><p>" + esc(e.message) + '</p><p><a href="/admin">Vai al pannello</a></p>'); });
+
+  function current() { return idx === 0 ? null : questions[idx - 1]; }
+  function announce() { if (conn) conn.send({ t: "show", q: current() ? current().id : null, force: force }); }
+  function go(i) {
+    var total = questions.length + 1;
+    idx = Math.max(0, Math.min(total - 1, i));
+    var q = current();
+    document.getElementById("pos").textContent = (idx === 0 ? "Benvenuto" : idx + " / " + questions.length);
+    if (!q) slide.setWelcome("Partecipa dal tuo smartphone");
+    else {
+      slide.setQuestion(Object.assign({ id: q.id }, q.data), idx);
+      slide.setRevealed(live.q === q.id ? live.revealed : false);
+      if (results[q.id]) slide.setResults(results[q.id]);
+    }
+    document.getElementById("reveal").classList.toggle("hidden", !(q && q.data.reveal === "click"));
+    updateRevealBtn();
+    announce();
+    clearInterval(beat); beat = setInterval(announce, 2000);
+  }
+  function updateRevealBtn() {
+    var q = current(), on = q && live.q === q.id && live.revealed;
+    document.getElementById("reveal").textContent = on ? "Nascondi le risposte" : "Mostra le risposte";
+  }
+  function onMsg(m) {
+    if (m.t === "results") { results[m.q] = m; if (current() && current().id === m.q) slide.setResults(m); }
+    else if (m.t === "live") {
+      live = m;
+      var q = current(); if (q && m.q === q.id) slide.setRevealed(m.revealed);
+      updateRevealBtn();
+      if (m.userId && m.by && over.innerHTML && !force) { /* il blocco si è liberato o è nostro */ }
+    } else if (m.t === "locked") {
+      clearInterval(beat);
+      overlay('<h3>Evento già in presentazione</h3><p><b>' + esc(m.by) + '</b> sta presentando questo evento. Se la sua presentazione è rimasta sospesa puoi prendere il controllo: la sua verrà interrotta.</p>' +
+        '<div class="qe-actions"><button class="btn" id="take">Prendi il controllo</button><a class="btn ghost" href="/admin">Torna al pannello</a></div>');
+      document.getElementById("take").onclick = function () { force = true; overlay(""); go(idx); setTimeout(function () { force = false; }, 3000); };
+    }
+  }
+  document.getElementById("prev").onclick = function () { go(idx - 1); };
+  document.getElementById("next").onclick = function () { go(idx + 1); };
+  document.getElementById("reveal").onclick = toggleReveal;
+  document.getElementById("fs").onclick = toggleFs;
+  function toggleReveal() {
+    var q = current(); if (!q || q.data.reveal !== "click") return;
+    var on = !(live.q === q.id && live.revealed);
+    conn.send({ t: "reveal", q: q.id, on: on });
+  }
+  function toggleFs() {
+    if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(function () {});
+  }
+  document.addEventListener("keydown", function (e) {
+    if (over.innerHTML) return;
+    if (["ArrowRight", "PageDown", " ", "Enter"].indexOf(e.key) >= 0) { e.preventDefault(); go(idx + 1); }
+    else if (["ArrowLeft", "PageUp", "Backspace"].indexOf(e.key) >= 0) { e.preventDefault(); go(idx - 1); }
+    else if (e.key === "r" || e.key === "R") toggleReveal();
+    else if (e.key === "f" || e.key === "F") toggleFs();
+    else if (e.key === "Home") go(0);
+  });
+  var idleT; function wake() { var c = document.getElementById("ctrl"); c.classList.remove("idle"); clearTimeout(idleT); idleT = setTimeout(function () { c.classList.add("idle"); }, 2500); }
+  document.addEventListener("mousemove", wake); wake();
+  window.addEventListener("pagehide", function () { if (conn && current()) conn.send({ t: "hide", q: current().id }); });
+})();
+</script>
+</body>
+</html>

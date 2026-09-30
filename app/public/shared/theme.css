@@ -1,0 +1,51 @@
+/* Taxi1729 Poll — stile comune di pannello, pubblico e add-in */
+:root {
+  --navy: #02151f; --navy-2: #0b2530; --navy-3: #133340;
+  --yellow: #e8ea6e; --sky: #7fa6ad; --salmon: #f28f86;
+  --white: #ffffff; --muted: #9fb3b9;
+  --ink: #1f2427; --ink-2: #5b6468; --line: #dde2e3; --paper: #f5f6f4; --card: #ffffff;
+  --ok: #2f9e62; --danger: #c2413a;
+  --radius: 10px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif; }
+.hidden { display: none !important; }
+
+/* Controlli dei moduli (pannello e add-in) */
+.ui { color: var(--ink); font-size: 14px; line-height: 1.45; }
+.ui h1, .ui h2, .ui h3 { margin: 0; letter-spacing: -.01em; }
+.ui label.lbl { display: block; font-weight: 600; margin: 14px 0 5px; }
+.ui .hint { color: var(--ink-2); font-size: 12.5px; margin-top: 4px; }
+.ui input[type=text], .ui input[type=email], .ui input[type=password], .ui textarea, .ui select {
+  width: 100%; padding: 9px 11px; border: 1px solid #c9cfd1; border-radius: 8px; font: inherit; color: inherit; background: #fff;
+}
+.ui input:focus, .ui textarea:focus, .ui select:focus { outline: 2px solid var(--sky); outline-offset: 0; border-color: var(--sky); }
+.ui .btn { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-weight: 600; padding: 9px 14px; border-radius: 8px;
+  border: 1px solid var(--navy); background: var(--navy); color: #fff; cursor: pointer; text-decoration: none; white-space: nowrap; }
+.ui .btn:hover { background: var(--navy-3); }
+.ui .btn.ghost { background: #fff; color: var(--navy); }
+.ui .btn.ghost:hover { background: #eef2f2; }
+.ui .btn.danger { background: #fff; color: var(--danger); border-color: #e4b8b5; }
+.ui .btn.small { padding: 5px 10px; font-size: 13px; }
+.ui .btn:disabled { opacity: .45; cursor: default; }
+.ui .seg { display: inline-flex; border: 1px solid #c9cfd1; border-radius: 8px; overflow: hidden; flex-wrap: wrap; }
+.ui .seg label { padding: 7px 12px; cursor: pointer; border-right: 1px solid #c9cfd1; font-weight: 500; user-select: none; }
+.ui .seg label:last-child { border-right: 0; }
+.ui .seg input { position: absolute; opacity: 0; pointer-events: none; }
+.ui .seg label:has(input:checked) { background: var(--navy); color: #fff; }
+.ui .check { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; font-weight: 500; cursor: pointer; }
+.ui .err { color: var(--danger); font-weight: 600; margin-top: 10px; }
+.ui .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.ui .muted { color: var(--ink-2); }
+.ui code { font: 12.5px ui-monospace, Menlo, Consolas, monospace; background: #eef1f1; padding: 1px 5px; border-radius: 4px; }
+
+/* Editor della domanda */
+.qe-opts { display: flex; flex-direction: column; gap: 6px; }
+.qe-opt { display: grid; grid-template-columns: 26px 1fr auto; gap: 6px; align-items: center; }
+.qe-opt .n { color: var(--ink-2); font-weight: 600; text-align: right; }
+.qe-opt button { border: 0; background: none; color: var(--ink-2); cursor: pointer; font-size: 18px; padding: 4px 8px; border-radius: 6px; }
+.qe-opt button:hover { background: #eef1f1; color: var(--danger); }
+.qe-row { display: flex; gap: 18px; flex-wrap: wrap; }
+.qe-row > div { min-width: 0; }
+.qe-actions { display: flex; gap: 8px; margin-top: 18px; flex-wrap: wrap; }

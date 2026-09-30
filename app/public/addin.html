@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Taxi1729 Poll</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Raleway:wght@300;400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+<link rel="stylesheet" href="/shared/theme.css">
+<link rel="stylesheet" href="/shared/slide.css">
+<style>
+  html, body { height: 100%; overflow: hidden; background: #02151f; }
+  #slide { position: absolute; inset: 0; }
+  #slideCtl { position: absolute; left: 10px; bottom: 10px; display: flex; gap: 8px; z-index: 4; }
+  #slideCtl button { font: 600 13px "Inter", sans-serif; padding: 7px 12px; border-radius: 8px; border: 0; cursor: pointer; background: rgba(255,255,255,.92); color: #02151f; }
+  #slideCtl button.warn { background: #f28f86; }
+  #debugStrip { position: absolute; left: 0; right: 0; bottom: 0; font: 11px/1.35 ui-monospace, Menlo, Consolas, monospace;
+    background: rgba(0,0,0,.72); color: #cfe; padding: 4px 8px; max-height: 30%; overflow: hidden; z-index: 3; }
+  #editor { position: absolute; inset: 0; overflow: auto; background: var(--paper); padding: 14px 16px 30px; font-size: 13.5px; }
+  #editor .head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  #editor .head img { height: 26px; }
+  #editor .head .grow { flex: 1; }
+  #editor .row2 { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; }
+  @media (max-width: 700px) { #editor .row2 { grid-template-columns: 1fr; } }
+  #editor .panel { padding: 14px 16px; }
+  #editor .inline { display: flex; gap: 8px; align-items: center; }
+  #editor .inline select, #editor .inline input { flex: 1; min-width: 0; }
+  #editor .banner { background: #fff6d6; border: 1px solid #e8d38a; border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
+  #editor .banner.red { background: #fdecea; border-color: #eab3ae; }
+  #log { margin-top: 8px; height: 150px; overflow: auto; background: #0f1a1f; color: #cfe; padding: 8px;
+    font: 11px/1.4 ui-monospace, Menlo, Consolas, monospace; border-radius: 6px; white-space: pre-wrap; user-select: text; }
+  details summary { cursor: pointer; font-weight: 600; margin-top: 14px; }
+  .mini-preview { position: relative; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; margin-top: 8px; }
+</style>
+</head>
+<body class="ui">
+<div id="slide"></div>
+<div id="slideCtl" class="hidden"></div>
+<div id="debugStrip" class="hidden"></div>
+<div id="editor" class="hidden"></div>
+
+<script src="/shared/api.js"></script>
+<script src="/shared/slide.js"></script>
+<script src="/shared/editor.js"></script>
+<script>
+(function () {
+  var esc = T.esc;
+  var $ = function (id) { return document.getElementById(id); };
+  var HEARTBEAT_MS = 2000, POLL_SLIDE_MS = 700;
+
+  // Impostazioni salvate dentro la slide (riquadro dell'add-in)
+  var S = {
+    eventId: null, eventCode: null, eventName: null,
+    kind: "question",               // "question" | "welcome"
+    questionId: null, snapshot: null, number: 1,
+    welcomeTitle: "Partecipa dal tuo smartphone",
+    slideId: null, slideIndex: null, fitted: false, debug: false
+  };
+  var KEYS = Object.keys(S);
+  var officeReady = false, view = null, curSlide = null, active = false, preview = false;
+  var conn = null, connEvent = null, beatTimer = null, live = { q: null, revealed: false }, lastResults = null, lockedBy = null, force = false;
+  var me = null, events = [], questions = [], editing = null, copyNotice = false, missing = false;
+  var slide = T.Slide($("slide"));
+  var logLines = [], T0 = Date.now();
+
+  function log(msg) {
+    var d = new Date();
+    logLines.push(d.toTimeString().slice(0, 8) + "." + String(d.getMilliseconds()).padStart(3, "0") + "  " + msg);
+    if (logLines.length > 400) logLines.shift();
+    var el = $("log"); if (el) el.textContent = logLines.slice().reverse().join("\n");
+    $("debugStrip").textContent = logLines.slice(-4).reverse().join("  |  ");
+  }
+
+  // ------------------------------------------------------------------ impostazioni
+  function loadSettings() {
+    if (!officeReady) return;
+    var st = Office.context.document.settings;
+    KEYS.forEach(function (k) { var v = st.get(k); if (v !== null && v !== undefined) S[k] = v; });
+  }
+  function saveSettings() {
+    if (!officeReady) return;
+    var st = Office.context.document.settings;
+    KEYS.forEach(function (k) { st.set(k, S[k]); });
+    st.saveAsync(function (r) { if (r.status !== "succeeded") log("salvataggio impostazioni: " + r.status); });
+  }
+
+  // ------------------------------------------------------------------ quale slide è in proiezione
+  function readCurrentSlide(cb) {
+    Office.context.document.getSelectedDataAsync(Office.CoercionType.SlideRange, function (r) {
+      if (r.status === Office.AsyncResultStatus.Succeeded && r.value && r.value.slides && r.value.slides.length) {
+        var sl = r.value.slides[0]; cb({ id: String(sl.id), index: sl.index, method: "A" });
+      } else readCurrentSlideB(function (b) { cb(b || { id: null, index: null, method: "A-errore: " + (r.error && r.error.message) }); });
+    });
+  }
+  function readCurrentSlideB(cb) {
+    try {
+      if (!(window.PowerPoint && Office.context.requirements.isSetSupported("PowerPointApi", "1.2"))) return cb(null);
+      PowerPoint.run(function (ctx) {
+        var sel = ctx.presentation.getSelectedSlides(); sel.load("items/id");
+        return ctx.sync().then(function () { cb(sel.items.length ? { id: String(sel.items[0].id), index: null, method: "B" } : null); });
+      }).catch(function (e) { cb({ id: null, index: null, method: "B-errore: " + e.message }); });
+    } catch (e) { cb(null); }
+  }
+  function baseId(x) { return String(x || "").split("#")[0]; }
+  function sameSlide(cur) { return !!(cur && cur.id && S.slideId && baseId(cur.id) === baseId(S.slideId)); }
+
+  function detectMySlide(force) {
+    if (S.slideId && !force) return;
+    readCurrentSlide(function (cur) {
+      if (!cur.id) { log("impossibile rilevare la slide: " + cur.method); return; }
+      if (baseId(cur.id) === baseId(S.slideId)) { if (cur.index !== S.slideIndex) { S.slideIndex = cur.index; saveSettings(); } return; }
+      if (S.slideId) {
+        log("riquadro associato alla slide " + S.slideId + ", ora sulla slide " + cur.id + ": probabilmente è una copia");
+        if (S.kind === "question" && S.questionId) { copyNotice = true; drawEditor(); }
+      }
+      S.slideId = cur.id; S.slideIndex = cur.index; saveSettings();
+      log("slide rilevata: id " + cur.id + " (n. " + cur.index + ", metodo " + cur.method + ")");
+    });
+  }
+
+  var lastKey = "";
+  function tick() {
+    if (!officeReady) { evaluate(); return; }
+    readCurrentSlide(function (cur) {
+      var key = cur.id + "|" + cur.index + "|" + cur.method;
+      if (key !== lastKey) { log("slide corrente: id " + cur.id + " n. " + cur.index + " (metodo " + cur.method + ")"); lastKey = key; }
+      curSlide = cur; evaluate();
+    });
+  }
+  function evaluate() {
+    var on, why;
+    if (view !== "read") { on = false; why = "vista modifica"; }
+    else if (!S.eventId) { on = false; why = "nessun evento scelto"; }
+    else if (S.kind === "question" && !S.questionId) { on = false; why = "nessuna domanda scelta"; }
+    else if (curSlide && curSlide.id && S.slideId) { on = sameSlide(curSlide); why = on ? "slide corrente = questa slide" : "slide corrente diversa"; }
+    else { on = document.visibilityState === "visible"; why = "fallback visibilità"; }
+    setActive(on, why);
+  }
+  function setActive(on, why) {
+    if (on === active) return;
+    active = on;
+    log((on ? "▶ ATTIVA" : "■ NON ATTIVA") + " — " + why);
+    clearInterval(beatTimer);
+    if (on) { announce(); beatTimer = setInterval(announce, HEARTBEAT_MS); }
+    else if (conn && S.kind === "question" && S.questionId) conn.send({ t: "hide", q: S.questionId });
+    drawSlideCtl();
+  }
+  function announce() {
+    if (!conn || !active) return;
+    conn.send({ t: "show", q: S.kind === "question" ? S.questionId : null, force: force });
+  }
+
+  // ------------------------------------------------------------------ collegamento in tempo reale (in proiezione)
+  function ensureConn() {
+    if (view !== "read" || !S.eventId || !T.token()) {
+      if (conn && view !== "read") { conn.close(); conn = null; connEvent = null; }
+      return;
+    }
+    if (conn && connEvent === S.eventId) return;
+    if (conn) conn.close();
+    connEvent = S.eventId;
+    conn = T.live({ role: "presenter", event: S.eventId, token: T.token() }, onLive, function (ok) {
+      log("rete: " + (ok ? "collegato" : "scollegato, riprovo…"));
+      if (ok) { announce(); if (S.questionId) conn.send({ t: "watch", q: S.questionId }); }
+    });
+  }
+  function onLive(m) {
+    if (m.t === "results" && m.q === S.questionId) { lastResults = m; slide.setResults(m); }
+    else if (m.t === "live") {
+      live = m;
+      if (S.questionId && m.q === S.questionId) slide.setRevealed(m.revealed);
+      if (lockedBy && m.userId && me && m.userId === me.id) { lockedBy = null; slide.setNotice(null); }
+      drawSlideCtl();
+    } else if (m.t === "locked") {
+      // Il server rifiuta finché l'altra presentazione è attiva: continuiamo a riprovare con il battito normale.
+      if (lockedBy !== m.by) log("evento bloccato: lo sta presentando " + m.by);
+      lockedBy = m.by;
+      slide.setNotice(m.by + " sta già presentando questo evento");
+      drawSlideCtl();
+    } else if (m.t === "error") log("server: " + m.msg);
+  }
+
+  // ------------------------------------------------------------------ disegno della slide
+  function renderSlide() {
+    slide.setEvent(S.eventCode ? { code: S.eventCode } : null);
+    if (S.kind === "welcome") slide.setWelcome(S.welcomeTitle);
+    else if (S.snapshot) {
+      slide.setQuestion(Object.assign({ id: S.questionId }, S.snapshot), S.number);
+      slide.setRevealed(S.snapshot.reveal !== "click" || (live.q === S.questionId && live.revealed));
+      if (lastResults && lastResults.q === S.questionId) slide.setResults(lastResults);
+    } else slide.setWelcome("Scegli una domanda dal pannello dell'add-in");
+    if (!S.eventId && view === "read") slide.setNotice("Add-in non configurato: apri la slide in modalità Modifica");
+    else if (!T.token() && view === "read") slide.setNotice("Accedi dal pannello dell'add-in (modalità Modifica) per collegare la slide");
+    else if (!lockedBy) slide.setNotice(missing ? "Questa domanda è stata eliminata dal pannello" : null);
+  }
+  function drawSlideCtl() {
+    var box = $("slideCtl"); box.innerHTML = "";
+    var show = view === "read" || preview;
+    box.classList.toggle("hidden", !show);
+    if (!show) return;
+    if (preview) { addBtn("← Torna alle impostazioni", function () { preview = false; renderMode(); }); return; }
+    if (lockedBy) addBtn("Prendi il controllo", function () {
+      force = true; lockedBy = null; slide.setNotice(null); announce(); drawSlideCtl();
+      setTimeout(function () { force = false; }, 4000);
+    }, "warn");
+    if (active && S.kind === "question" && S.snapshot && S.snapshot.reveal === "click") {
+      var on = live.q === S.questionId && live.revealed;
+      addBtn(on ? "Nascondi le risposte" : "Mostra le risposte", function () { conn && conn.send({ t: "reveal", q: S.questionId, on: !on }); });
+    }
+    function addBtn(label, fn, cls) { var b = document.createElement("button"); b.textContent = label; if (cls) b.className = cls; b.onclick = fn; box.appendChild(b); }
+  }
+  function renderMode() {
+    var showStage = view === "read" || preview || !officeReady;
+    $("slide").classList.toggle("hidden", !showStage);
+    $("editor").classList.toggle("hidden", showStage);
+    $("debugStrip").classList.toggle("hidden", !(S.debug && showStage));
+    if (showStage) { renderSlide(); slide.fit(); slide.render(); }
+    else drawEditor();
+    drawSlideCtl();
+  }
+  // Su Windows la prima proiezione a volte non ridisegna il riquadro: lo forziamo per qualche secondo.
+  function nudgeRepaint() {
+    var n = 0, iv = setInterval(function () {
+      document.body.style.transform = (n % 2) ? "translateZ(0)" : "none"; void document.body.offsetHeight; slide.fit();
+      if (++n >= 12) { clearInterval(iv); document.body.style.transform = "none"; }
+    }, 250);
+  }
+
+  // ------------------------------------------------------------------ dati dal server
+  function refreshQuestion() {
+    if (!S.questionId || !T.token()) return Promise.resolve();
+    return T.api("questions/" + S.questionId).then(function (d) {
+      missing = false;
+      var changed = JSON.stringify(d.question.data) !== JSON.stringify(S.snapshot) || d.question.pos !== S.number;
+      S.snapshot = d.question.data; S.number = d.question.pos;
+      if (changed) { if (view !== "read") saveSettings(); renderSlide(); }
+    }, function (e) {
+      if (e.status === 404) { missing = true; log("la domanda " + S.questionId + " non esiste più"); renderSlide(); }
+      else log("aggiornamento domanda non riuscito: " + e.message);
+    });
+  }
+  function loadEvents() {
+    return T.api("events").then(function (d) { events = d.events; }, function (e) { if (e.status === 401) { T.setToken(null); me = null; } throw e; });
+  }
+  function loadQuestions() {
+    if (!S.eventId) { questions = []; return Promise.resolve(); }
+    return T.api("events/" + S.eventId).then(function (d) {
+      questions = d.questions;
+      S.eventCode = d.event.code; S.eventName = d.event.name;
+      var q = questions.find(function (x) { return x.id === S.questionId; });
+      if (q) { S.snapshot = q.data; S.number = q.pos; missing = false; }
+      else if (S.questionId) missing = true;
+      saveSettings();
+    }, function (e) { if (e.status === 404) { log("evento non trovato"); questions = []; } else throw e; });
+  }
+
+  // ------------------------------------------------------------------ pannello (modalità Modifica)
+  function drawEditor() {
+    if (view === "read" || preview) return;
+    var ed = $("editor");
+    var head = '<div class="head"><img src="/assets/logo-positivo.png" alt="Taxi1729"><span class="grow"></span>' +
+      (me ? '<span class="muted">' + esc(me.name) + '</span> <button class="btn ghost small" id="bOut">Esci</button>' : '') + '</div>';
+    if (!T.token() || !me) {
+      ed.innerHTML = head + '<div class="card panel" style="max-width:420px"><h3>Accedi</h3><p class="muted" style="margin:4px 0 0">Usa le stesse credenziali del pannello web.</p>' +
+        '<form id="fl"><label class="lbl">Email</label><input type="email" id="lem" autocomplete="username" required>' +
+        '<label class="lbl">Password</label><input type="password" id="lpw" autocomplete="current-password" required><div id="ler"></div>' +
+        '<div class="qe-actions"><button class="btn">Accedi</button></div></form></div>' + diagHtml();
+      $("fl").onsubmit = function (e) {
+        e.preventDefault();
+        T.api("login", { body: { email: $("lem").value, password: $("lpw").value } }).then(function (d) {
+          T.setToken(d.token); me = d.user; bootData();
+        }, function (er) { $("ler").innerHTML = '<div class="err">' + esc(er.message) + '</div>'; });
+      };
+      bindDiag(); return;
+    }
+    if (editing) return drawQuestionEditor();
+
+    var evOpts = '<option value="">— scegli un evento —</option>' + events.map(function (e) {
+      return '<option value="' + esc(e.id) + '"' + (e.id === S.eventId ? " selected" : "") + '>' + esc(e.name) + ' (' + esc(e.code) + ')</option>';
+    }).join("");
+    var qOpts = '<option value="">— scegli una domanda —</option>' + questions.map(function (q, i) {
+      return '<option value="' + esc(q.id) + '"' + (q.id === S.questionId ? " selected" : "") + '>' + (i + 1) + '. ' + esc(q.data.title || "(domanda senza testo)") + '</option>';
+    }).join("");
+    var html = head + '<div class="row2"><div class="card panel">' +
+      '<label class="lbl" style="margin-top:0">Evento</label><div class="inline"><select id="selEv">' + evOpts + '</select><button class="btn ghost small" id="bNewEv">+ Nuovo</button></div>' +
+      (S.eventId ? '<div class="hint">Codice per il pubblico: <b>' + esc(S.eventCode || "—") + '</b></div>' : '<div class="hint">Tutte le slide della presentazione dovrebbero usare lo stesso evento.</div>');
+    if (S.eventId) {
+      html += '<label class="lbl">Tipo di slide</label><div class="seg">' +
+        '<label><input type="radio" name="kind" value="question"' + (S.kind === "question" ? " checked" : "") + '>Domanda</label>' +
+        '<label><input type="radio" name="kind" value="welcome"' + (S.kind === "welcome" ? " checked" : "") + '>Benvenuto (solo QR)</label></div>';
+      if (S.kind === "question") {
+        html += '<label class="lbl">Domanda mostrata in questa slide</label><div class="inline"><select id="selQ">' + qOpts + '</select></div>' +
+          '<div class="qe-actions" style="margin-top:10px"><button class="btn small" id="bNewQ">+ Nuova domanda</button>' +
+          (S.questionId && !missing ? '<button class="btn ghost small" id="bEditQ">Modifica questa domanda</button>' : '') + '</div>';
+        if (missing) html += '<div class="banner red">La domanda scelta per questa slide è stata eliminata. Scegline un\'altra o creane una nuova.</div>';
+        if (copyNotice) html += '<div class="banner">Questa slide sembra una <b>copia</b> di un\'altra slide: entrambe mostrano la stessa domanda (stessi voti).' +
+          '<div class="qe-actions" style="margin-top:8px"><button class="btn small" id="bDupQ">Crea una copia indipendente</button><button class="btn ghost small" id="bKeep">Va bene così</button></div></div>';
+      } else {
+        html += '<label class="lbl" for="wTitle">Titolo della slide</label><input type="text" id="wTitle" maxlength="120">';
+      }
+    }
+    html += '</div><div>' +
+      '<div class="card panel"><b>Anteprima</b><div class="mini-preview" id="mini"></div>' +
+      '<div class="qe-actions"><button class="btn ghost small" id="bPrev">Anteprima grande</button><button class="btn ghost small" id="bFit">Adatta a tutta la slide</button></div></div>' +
+      diagHtml() + '</div></div>';
+    ed.innerHTML = html;
+
+    $("bOut").onclick = function () { T.api("logout", { method: "POST" }).catch(function () {}); T.setToken(null); me = null; drawEditor(); };
+    $("selEv").onchange = function () {
+      S.eventId = this.value || null; S.questionId = null; S.snapshot = null; missing = false; copyNotice = false;
+      var ev = events.find(function (e) { return e.id === S.eventId; });
+      S.eventCode = ev ? ev.code : null; S.eventName = ev ? ev.name : null;
+      if (S.eventId) T.store("t1729-last-event", S.eventId);
+      saveSettings(); loadQuestions().then(drawEditor, drawEditor);
+    };
+    $("bNewEv").onclick = function () {
+      var name = window.prompt("Nome del nuovo evento:");
+      if (!name) return;
+      T.api("events", { body: { name: name } }).then(function (d) {
+        return loadEvents().then(function () { $("selEv").value = d.event.id; $("selEv").onchange.call($("selEv")); });
+      }, function (e) { alert(e.message); });
+    };
+    Array.prototype.forEach.call(document.querySelectorAll('input[name="kind"]'), function (r) {
+      r.onchange = function () { S.kind = r.value; saveSettings(); drawEditor(); };
+    });
+    if ($("selQ")) $("selQ").onchange = function () {
+      S.questionId = this.value || null; missing = false; copyNotice = false;
+      var q = questions.find(function (x) { return x.id === S.questionId; });
+      S.snapshot = q ? q.data : null; S.number = q ? q.pos : 1; lastResults = null;
+      saveSettings(); drawEditor();
+    };
+    if ($("bNewQ")) $("bNewQ").onclick = function () { editing = { isNew: true }; drawEditor(); };
+    if ($("bEditQ")) $("bEditQ").onclick = function () { editing = { isNew: false }; drawEditor(); };
+    if ($("bDupQ")) $("bDupQ").onclick = function () {
+      T.api("questions/" + S.questionId + "/duplicate", { method: "POST" }).then(function (d) {
+        S.questionId = d.question.id; S.snapshot = d.question.data; copyNotice = false; saveSettings();
+        return loadQuestions();
+      }).then(drawEditor, function (e) { alert(e.message); });
+    };
+    if ($("bKeep")) $("bKeep").onclick = function () { copyNotice = false; drawEditor(); };
+    if ($("wTitle")) { $("wTitle").value = S.welcomeTitle; $("wTitle").onchange = function () { S.welcomeTitle = this.value.trim() || "Partecipa dal tuo smartphone"; saveSettings(); drawMini(); }; }
+    $("bPrev").onclick = function () { preview = true; renderMode(); };
+    $("bFit").onclick = function () { fitToSlide(true); };
+    bindDiag();
+    drawMini();
+  }
+  var mini = null;
+  function drawMini() {
+    var box = $("mini"); if (!box) return;
+    mini = T.Slide(box);
+    mini.setEvent(S.eventCode ? { code: S.eventCode } : null);
+    if (S.kind === "welcome") mini.setWelcome(S.welcomeTitle);
+    else if (S.snapshot) { mini.setQuestion(Object.assign({ id: S.questionId }, S.snapshot), S.number); mini.setRevealed(true); }
+    else mini.setWelcome(S.eventId ? "Scegli o crea una domanda" : "Scegli un evento");
+    setTimeout(function () { mini.fit(); mini.render(); }, 30);
+  }
+  function drawQuestionEditor() {
+    var ed = $("editor");
+    var cur = editing.isNew ? null : questions.find(function (q) { return q.id === S.questionId; });
+    var idx = cur ? questions.indexOf(cur) : questions.length;
+    var siblings = questions.slice(0, idx).map(function (q, i) { return { id: q.id, pos: i + 1, title: q.data.title, multi: q.data.multi }; });
+    ed.innerHTML = '<div class="card panel"><h3>' + (editing.isNew ? "Nuova domanda" : "Modifica domanda") + '</h3>' +
+      (editing.isNew ? '' : '<div class="hint">Le modifiche valgono ovunque la domanda è usata: pannello web e altre slide.</div>') + '<div id="qeBox"></div></div>';
+    T.QuestionEditor($("qeBox"), {
+      data: cur ? cur.data : null, siblings: siblings, saveLabel: editing.isNew ? "Crea e usa in questa slide" : "Salva modifiche",
+      onCancel: function () { editing = null; drawEditor(); },
+      onSave: function (data) {
+        var p = editing.isNew ? T.api("events/" + S.eventId + "/questions", { body: { data: data } })
+                              : T.api("questions/" + S.questionId, { method: "PATCH", body: { data: data } });
+        return p.then(function (d) {
+          S.questionId = d.question.id; S.snapshot = d.question.data; S.number = d.question.pos; missing = false;
+          editing = null; saveSettings();
+          return loadQuestions().then(drawEditor);
+        });
+      }
+    });
+  }
+  function diagHtml() {
+    return '<details class="card panel" style="margin-top:14px"' + (S.debug ? " open" : "") + '><summary>Diagnostica</summary>' +
+      '<div class="muted" style="margin-top:8px">Slide: <b>' + esc(S.slideId ? "id " + S.slideId + (S.slideIndex ? " (n. " + S.slideIndex + ")" : "") : "non rilevata") + '</b> · ' +
+      'Vista: <b>' + (view === "read" ? "proiezione" : view === "edit" ? "modifica" : "—") + '</b></div>' +
+      '<label class="check"><input type="checkbox" id="dbg"' + (S.debug ? " checked" : "") + '> Mostra la barra diagnostica in proiezione</label>' +
+      '<div class="qe-actions"><button class="btn ghost small" id="bRedetect">Rileva di nuovo la slide</button><button class="btn ghost small" id="bCopy">Copia diagnostica</button></div>' +
+      '<div id="log"></div></details>';
+  }
+  function bindDiag() {
+    if ($("dbg")) $("dbg").onchange = function () { S.debug = this.checked; saveSettings(); };
+    if ($("bRedetect")) $("bRedetect").onclick = function () { detectMySlide(true); };
+    if ($("bCopy")) $("bCopy").onclick = function () {
+      var info = "Taxi1729 Poll diagnostica\n" + navigator.userAgent + "\nhost: " + (officeReady ? Office.context.diagnostics.platform + " " + Office.context.diagnostics.version : "browser") +
+        "\nevento: " + S.eventId + " domanda: " + S.questionId + " tipo: " + S.kind + "\n\n" + logLines.join("\n");
+      var ta = document.createElement("textarea"); ta.value = info; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); log("diagnostica copiata negli appunti"); } catch (e) { log("copia non riuscita: seleziona il testo qui sotto e copialo a mano"); }
+      document.body.removeChild(ta);
+    };
+    if ($("log")) $("log").textContent = logLines.slice().reverse().join("\n");
+  }
+
+  // ------------------------------------------------------------------ riquadro a tutta slide
+  function fitToSlide(manual) {
+    if (!(window.PowerPoint && Office.context.requirements.isSetSupported("PowerPointApi", "1.5"))) { log("ridimensionamento automatico non supportato"); return; }
+    var W = 960, H = 540;
+    PowerPoint.run(function (ctx) {
+      var sizeP = Promise.resolve();
+      if (Office.context.requirements.isSetSupported("PowerPointApi", "1.10") && ctx.presentation.pageSetup) {
+        var ps = ctx.presentation.pageSetup; ps.load("slideWidth,slideHeight");
+        sizeP = ctx.sync().then(function () { W = ps.slideWidth; H = ps.slideHeight; }).catch(function () {});
+      }
+      return sizeP.then(function () {
+        var sel = ctx.presentation.getSelectedSlides(); sel.load("items/id");
+        return ctx.sync().then(function () {
+          if (!sel.items.length) return;
+          if (!manual && baseId(sel.items[0].id) !== baseId(S.slideId)) { log("adatta: la slide selezionata non è la mia"); return; }
+          var shapes = sel.items[0].shapes; shapes.load("items/type,items/name");
+          return ctx.sync().then(function () {
+            var apps = shapes.items.filter(function (sh) { return /content\s*app|addin|webextension/i.test(String(sh.type)); });
+            log("adatta: forme = " + shapes.items.map(function (sh) { return sh.type; }).join(", ") + " · slide " + W + "×" + H);
+            if (!apps.length) return;
+            apps.forEach(function (sh) { sh.left = 0; sh.top = 0; sh.width = W; sh.height = H; });
+            return ctx.sync().then(function () { S.fitted = true; saveSettings(); log("riquadro adattato a tutta la slide"); });
+          });
+        });
+      });
+    }).catch(function (e) { log("adatta: errore " + e.message); });
+  }
+
+  // ------------------------------------------------------------------ avvio
+  function bootData() {
+    if (!T.token()) { drawEditor(); return; }
+    T.api("me").then(function (d) {
+      me = d.user;
+      if (!S.eventId) {
+        var last = T.store("t1729-last-event");
+        if (last) S.eventId = last;
+      }
+      return loadEvents().then(function () {
+        if (S.eventId && !events.some(function (e) { return e.id === S.eventId; })) { S.eventId = null; S.eventCode = null; }
+        return loadQuestions();
+      });
+    }).then(function () { renderMode(); }, function (e) {
+      if (e && e.status === 401) { T.setToken(null); me = null; }
+      log("caricamento dati: " + (e && e.message)); renderMode();
+    });
+  }
+  function onView(v, initial) {
+    view = v; log((initial ? "vista iniziale: " : "cambio vista: ") + v + (initial ? " (dopo " + (Date.now() - T0) + " ms)" : ""));
+    renderMode(); ensureConn(); tick();
+    if (v === "read") { nudgeRepaint(); refreshQuestion(); }
+    else if (me) loadQuestions().then(drawEditor, function () {});
+  }
+  function boot(inOffice) {
+    officeReady = inOffice;
+    if (!inOffice) { log("aperto fuori da PowerPoint: solo anteprima"); view = "edit"; renderMode(); bootData(); return; }
+    loadSettings();
+    log("avvio in " + Office.context.diagnostics.platform + " " + Office.context.diagnostics.version);
+    Office.context.document.getActiveViewAsync(function (r) {
+      onView(r.value, true);
+      if (r.value === "edit") { detectMySlide(false); if (!S.fitted) setTimeout(function () { fitToSlide(false); }, 900); }
+      if (r.value === "edit") bootData(); else T.api("me").then(function (d) { me = d.user; }, function () {});
+    });
+    Office.context.document.addHandlerAsync(Office.EventType.ActiveViewChanged, function (e) { onView(e.activeView, false); });
+    setInterval(tick, POLL_SLIDE_MS);
+    // In modalità Modifica, un clic dentro il riquadro seleziona per forza la sua slide: ne approfittiamo
+    // per correggere l'associazione (utile se la slide è stata duplicata).
+    window.addEventListener("focus", function () { if (view === "edit") setTimeout(function () { detectMySlide(true); }, 200); });
+    document.addEventListener("mousedown", function () { if (view === "edit") setTimeout(function () { detectMySlide(true); }, 200); });
+  }
+  document.addEventListener("visibilitychange", function () { log("visibilità: " + document.visibilityState); tick(); if (document.visibilityState === "visible") nudgeRepaint(); });
+  window.addEventListener("pagehide", function () { if (active && conn && S.kind === "question" && S.questionId) conn.send({ t: "hide", q: S.questionId }); });
+  T.loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js", function (ok) { log(ok ? "libreria QR caricata" : "ERRORE libreria QR"); slide.redrawQr(); if (mini) mini.redrawQr(); });
+
+  renderSlide();
+  if (typeof Office === "undefined" || !Office.onReady) boot(false);
+  else Office.onReady(function (info) { boot(!!(info && info.host)); });
+})();
+</script>
+</body>
+</html>
