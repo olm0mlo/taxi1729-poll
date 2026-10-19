@@ -77,7 +77,8 @@
     var logo = h("img", "t-logo"); logo.src = "/assets/logo-negativo.png"; logo.alt = "Taxi1729"; canvas.appendChild(logo);
     var notice = h("div", "t-notice hidden"); canvas.appendChild(notice);
 
-    var st = { mode: "question", code: null, eventName: "", q: null, number: 1, res: null, revealed: false, welcomeTitle: "", chartOverride: null, armed: false, answer: false, qonly: false, split: "hist" };
+    var st = { mode: "question", code: null, eventName: "", q: null, number: 1, res: null, revealed: false, welcomeTitle: "", chartOverride: null, armed: false, answer: false, qonly: false, split: "hist",
+      sum: null, sumRes: {}, sumTitle: "" };   // slide di riepilogo: due domande a scelta multipla con i loro risultati
     var view = null;             // grafico attualmente disegnato
     var pendingIntro = 0;        // animazione di comparsa richiesta prima che arrivassero i risultati
 
@@ -109,6 +110,9 @@
     function currentRes() { return st.res && st.q && st.res.q === st.q.id ? st.res : null; }
 
     function render() {
+      var summary = st.mode === "summary";
+      stage.classList.toggle("summary", summary);
+      if (summary) return renderSummary();
       var welcome = st.mode === "welcome";
       stage.classList.toggle("welcome", welcome);
       welcomeText.classList.toggle("hidden", !welcome);
@@ -547,6 +551,72 @@
       };
     }
 
+    // ---------------------------------------------------------------- riepilogo di due domande (due ciambelle affiancate)
+    // Ogni metà: testo della domanda in alto, ciambella con il numero di risposte al centro, legenda con le percentuali sotto.
+    function renderSummary() {
+      stage.classList.remove("welcome", "qonly");
+      welcomeText.classList.add("hidden"); chart.classList.remove("hidden"); total.classList.add("hidden");
+      kTxt.textContent = st.eventName || "SONDAGGIO";
+      var tt = st.sumTitle || "";
+      title.textContent = tt;
+      title.className = "t-title" + (tt.length > 110 ? " s" : tt.length > 60 ? " m" : "") + (tt ? "" : " hidden");
+      chart.style.marginRight = "0px"; chart.style.marginTop = "0px";
+      var minTop = 316, t0 = chart.offsetTop;     // appena sotto il codice del QR
+      if (t0 && t0 < minTop) chart.style.marginTop = (minTop - t0) + "px";
+      view = null; chart.innerHTML = "";
+      var W = chart.clientWidth, H = chart.clientHeight; if (!W || !H) return;
+      var svg = s("svg", { "class": "t-svg", width: W, height: H, viewBox: "0 0 " + W + " " + H }); chart.appendChild(svg);
+      var qs = (st.sum || []).filter(Boolean);
+      if (qs.length === 2) svg.appendChild(s("line", { x1: W / 2, x2: W / 2, y1: 0, y2: H, stroke: "rgba(255,255,255,.12)", "stroke-width": 2 }));
+      var colW = W / Math.max(1, qs.length);
+      // dimensioni comuni alle due metà, così le ciambelle hanno la stessa misura
+      var nMax = Math.max.apply(null, qs.map(function (q) { return (q.options || []).length; }).concat([2]));
+      var fs = 32, lh = fs * 1.5;
+      while (nMax * lh > H * 0.36 && fs > 22) { fs -= 1; lh = fs * 1.5; }
+      var tfs = 34, maxLines = 2, titleH = maxLines * tfs * 1.25;
+      var r = Math.max(70, Math.min(165, (H - titleH - 28 - 30 - nMax * lh) / 2));
+      var blockH = titleH + 28 + 2 * r + 30 + nMax * lh, offY = Math.max(0, (H - blockH) / 2);
+      qs.forEach(function (q, k) {
+        var cx = colW * k + colW / 2, res = st.sumRes[q.id], counts = res && res.counts ? res.counts : q.options.map(function () { return 0; });
+        var tot = res ? res.total : 0, colors = q.options.map(function (o, i) { return PALETTE[i % PALETTE.length]; });
+        // testo della domanda, a capo su due righe al massimo
+        var lines = wrapText(svg, q.title || "", tfs, colW - 120, maxLines);
+        var tTop = offY + (maxLines - lines.length) * tfs * 0.62;
+        lines.forEach(function (l, i) {
+          var t = s("text", { x: cx, y: tTop + tfs + i * tfs * 1.25, "font-size": tfs, "font-weight": 600, "text-anchor": "middle", style: "fill:#fff;font-family:Inter,sans-serif" });
+          t.textContent = l; svg.appendChild(t);
+        });
+        var cy = offY + titleH + 28 + r;
+        drawDonut(svg, cx, cy, r, counts, colors, String(tot), Math.round(r * 0.32));
+        // legenda: nome a sinistra, percentuale a destra, blocco centrato sotto la ciambella
+        var labW = Math.min(colW - 160, Math.max(fs * 8, fs * 0.55 * Math.max.apply(null, q.options.map(function (o, i) { return T.optLabel(o, i).length; })) + fs * 4.5));
+        var lx = cx - labW / 2, y0 = cy + r + 30 + fs * 0.85, maxCh = Math.floor((labW - fs * 4.5) / (fs * 0.52));
+        q.options.forEach(function (o, i) {
+          var y = y0 + i * lh, name = T.optLabel(o, i);
+          svg.appendChild(s("circle", { cx: lx + fs * 0.38, cy: y - fs * 0.33, r: fs * 0.38, fill: colors[i] }));
+          var t = s("text", { x: lx + fs * 1.3, y: y, "font-size": fs, style: "fill:#dfe7e8" }); t.textContent = name.length > maxCh ? name.slice(0, maxCh - 1) + "…" : name; svg.appendChild(t);
+          var p = s("text", { x: lx + labW, y: y, "font-size": fs, "text-anchor": "end", "font-weight": 800, style: "fill:#fff;font-family:Inter,sans-serif" });
+          p.textContent = pct(counts[i], tot) + "%"; svg.appendChild(p);
+        });
+      });
+      if (!qs.length) { var m = s("text", { x: W / 2, y: H / 2, "font-size": 36, "text-anchor": "middle", style: "fill:#9fb3b9" }); m.textContent = "Scegli le due domande dal pannello dell'add-in"; svg.appendChild(m); }
+    }
+    // Spezza un testo in righe che stanno nella larghezza data (misurate davvero); l'ultima riga termina con "…" se serve.
+    function wrapText(svg, txt, fs, w, maxLines) {
+      var probe = s("text", { "font-size": fs, "font-weight": 600, style: "font-family:Inter,sans-serif", visibility: "hidden" }); svg.appendChild(probe);
+      var width = function (t) { probe.textContent = t; return probe.getComputedTextLength ? probe.getComputedTextLength() : t.length * fs * 0.55; };
+      var words = String(txt).split(/\s+/).filter(Boolean), lines = [], line = "";
+      words.forEach(function (wd) { var t = line ? line + " " + wd : wd; if (line && width(t) > w) { lines.push(line); line = wd; } else line = t; });
+      if (line) lines.push(line);
+      if (lines.length > maxLines) {
+        var last = lines.slice(maxLines - 1).join(" ");
+        while (last.length > 1 && width(last + "…") > w) last = last.slice(0, -1);
+        lines = lines.slice(0, maxLines - 1).concat([last.replace(/\s+$/, "") + "…"]);
+      }
+      svg.removeChild(probe);
+      return lines.length ? lines : [""];
+    }
+
     // ---------------------------------------------------------------- ciambella (nessuna animazione)
     function hexRgb(c) { var m = c.replace("#", ""); return [0, 2, 4].map(function (i) { return parseInt(m.substr(i, 2), 16); }); }
     function mix(a, b, t) { var x = hexRgb(a), y = hexRgb(b); return "rgb(" + x.map(function (v, i) { return Math.round(v + (y[i] - v) * t); }).join(",") + ")"; }
@@ -745,7 +815,19 @@
         if (!st.q || !q || st.q.id !== q.id) { view = null; chart.innerHTML = ""; totalNum._v = null; }
         st.mode = "question"; st.q = q; st.number = number || 1; render();
       },
-      setResults: function (res) { st.res = res; if (st.mode === "question") render(); },
+      setResults: function (res) {
+        if (st.mode === "summary") {
+          if (res && st.sum && st.sum.some(function (q) { return q && q.id === res.q; })) { st.sumRes[res.q] = res; render(); }
+          return;
+        }
+        st.res = res; if (st.mode === "question") render();
+      },
+      // Slide di riepilogo: due domande (dati come in setQuestion) e un titolo facoltativo; i telefoni restano in attesa.
+      setSummary: function (qa, qb, ttl) {
+        var ids = [qa && qa.id, qb && qb.id].join("|"), old = (st.sum || []).map(function (q) { return q && q.id; }).join("|");
+        if (st.mode !== "summary" || ids !== old) st.sumRes = {};
+        st.mode = "summary"; st.sum = [qa, qb]; st.sumTitle = ttl || ""; view = null; render();
+      },
       // Crowd Wisdom: mostra o nasconde la linea della risposta esatta in questa slide
       setAnswerVisible: function (on) {
         on = !!on; if (st.answer === on) return;

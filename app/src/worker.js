@@ -878,7 +878,9 @@ export class Hub {
       const ev = att.eventId, now = Date.now();
       let L = this.live.get(ev);
       if (msg.t === "watch") {
-        if (msg.q) { const q = this.getQ(msg.q); if (q && q.eventId === ev) reply(this.results(q.id)); }
+        // risultati attuali di una domanda (q) o di più domande insieme (qs, per le slide di riepilogo)
+        const ids = Array.isArray(msg.qs) ? msg.qs.slice(0, 4) : [msg.q];
+        for (const id of ids) { if (typeof id !== "string" || !id) continue; const q = this.getQ(id); if (q && q.eventId === ev) reply(this.results(q.id)); }
         return;
       }
       if (msg.t === "show") {

@@ -56,7 +56,8 @@
   // Impostazioni salvate dentro la slide (riquadro dell'add-in)
   var S = {
     eventId: null, eventCode: null, eventName: null,
-    kind: "question",               // "question" | "welcome"
+    kind: "question",               // "question" | "welcome" | "summary" (riepilogo di due domande)
+    summaryA: null, summaryB: null, snapA: null, snapB: null, summaryTitle: "",
     questionId: null, snapshot: null, number: 1,
     welcomeTitle: "Partecipa con il tuo smartphone",
     results: "hidden",              // domande con risultati "su click": in questa slide nascosti o visibili
@@ -69,6 +70,8 @@
   var KEYS = Object.keys(S);
   var officeReady = false, view = null, curSlide = null, active = false, preview = false;
   var conn = null, connEvent = null, beatTimer = null, live = { q: null, revealed: false }, lastResults = null, lockedBy = null, force = false;
+  var sumResults = {}, sumMissing = false;   // riepilogo: ultimi risultati ricevuti per ciascuna delle due domande
+  function sumIds() { return [S.summaryA, S.summaryB].filter(Boolean); }
   var me = null, events = [], questions = [], editing = null, copyNotice = false, missing = false;
   var slide = T.Slide($("slide"));
   var logLines = [], T0 = Date.now();
@@ -148,6 +151,7 @@
     if (view !== "read") { on = false; why = "vista modifica"; }
     else if (!S.eventId) { on = false; why = "nessun evento scelto"; }
     else if (S.kind === "question" && !S.questionId) { on = false; why = "nessuna domanda scelta"; }
+    else if (S.kind === "summary" && sumIds().length < 2) { on = false; why = "domande del riepilogo non scelte"; }
     else if (curSlide && curSlide.id && S.slideId) { on = sameSlide(curSlide); why = on ? "slide corrente = questa slide" : "slide corrente diversa"; }
     else { on = document.visibilityState === "visible"; why = "fallback visibilità"; }
     setActive(on, why);
@@ -158,7 +162,10 @@
     log((on ? "▶ ATTIVA" : "■ NON ATTIVA") + " — " + why);
     clearInterval(beatTimer);
     if (!on && view === "read") slide.arm();   // la prossima volta il grafico ripartirà da vuoto
-    if (on) { announce(); beatTimer = setInterval(announce, HEARTBEAT_MS); slide.playIntro(); }
+    if (on) {
+      announce(); beatTimer = setInterval(announce, HEARTBEAT_MS); slide.playIntro();
+      if (S.kind === "summary" && conn) conn.send({ t: "watch", qs: sumIds() });   // risultati aggiornati al momento in cui compare
+    }
     else if (conn && S.kind === "question" && S.questionId) conn.send({ t: "hide", q: S.questionId, k: slideKey() });
     drawSlideCtl();
   }
@@ -178,11 +185,16 @@
     connEvent = S.eventId;
     conn = T.live({ role: "presenter", event: S.eventId, token: T.token() }, onLive, function (ok) {
       log("rete: " + (ok ? "collegato" : "scollegato, riprovo…"));
-      if (ok) { announce(); if (S.questionId) conn.send({ t: "watch", q: S.questionId }); }
+      if (ok) {
+        announce();
+        if (S.kind === "summary") { if (sumIds().length) conn.send({ t: "watch", qs: sumIds() }); }
+        else if (S.questionId) conn.send({ t: "watch", q: S.questionId });
+      }
     }, { pingMs: 3000, pongMs: 3000 });
   }
   function onLive(m) {
-    if (m.t === "results" && m.q === S.questionId) { lastResults = m; slide.setResults(m); }
+    if (m.t === "results" && S.kind === "summary") { if (sumIds().indexOf(m.q) >= 0) { sumResults[m.q] = m; slide.setResults(m); } }
+    else if (m.t === "results" && m.q === S.questionId) { lastResults = m; slide.setResults(m); }
     else if (m.t === "live") {
       live = m;
       if (S.questionId) slide.setRevealed(isRevealed());
@@ -205,6 +217,10 @@
     slide.setQuestionOnly(S.content === "question");
     slide.setSplitView(S.splitView);
     if (S.kind === "welcome") slide.setWelcome(S.welcomeTitle);
+    else if (S.kind === "summary") {
+      slide.setSummary(S.snapA ? Object.assign({ id: S.summaryA }, S.snapA) : null, S.snapB ? Object.assign({ id: S.summaryB }, S.snapB) : null, S.summaryTitle);
+      sumIds().forEach(function (id) { if (sumResults[id]) slide.setResults(sumResults[id]); });
+    }
     else if (S.snapshot) {
       slide.setQuestion(Object.assign({ id: S.questionId }, S.snapshot), S.number);
       slide.setRevealed(isRevealed());
@@ -212,7 +228,8 @@
     } else slide.setWelcome("Scegli una domanda dal pannello dell'add-in");
     if (!S.eventId && view === "read") slide.setNotice("Add-in non configurato: apri la slide in modalità Modifica");
     else if (!T.token() && view === "read") slide.setNotice("Accedi dal pannello dell'add-in (modalità Modifica) per collegare la slide");
-    else if (!lockedBy) slide.setNotice(missing ? "Questa domanda è stata eliminata dal pannello" : null);
+    else if (!lockedBy) slide.setNotice(S.kind === "summary" ? (sumMissing ? "Una delle domande del riepilogo è stata eliminata dal pannello" : null)
+      : (missing ? "Questa domanda è stata eliminata dal pannello" : null));
   }
   function drawSlideCtl() {
     var box = $("slideCtl"); box.innerHTML = "";
@@ -249,6 +266,7 @@
 
   // ------------------------------------------------------------------ dati dal server
   function refreshQuestion() {
+    if (S.kind === "summary") return refreshSummary();
     if (!S.questionId || !T.token()) return Promise.resolve();
     return T.api("questions/" + S.questionId).then(function (d) {
       missing = false;
@@ -258,6 +276,20 @@
     }, function (e) {
       if (e.status === 404) { missing = true; log("la domanda " + S.questionId + " non esiste più"); renderSlide(); }
       else log("aggiornamento domanda non riuscito: " + e.message);
+    });
+  }
+  // riepilogo: testi e risposte aggiornati delle due domande (in proiezione, se nel frattempo sono state modificate)
+  function refreshSummary() {
+    if (!T.token() || sumIds().length < 2) return Promise.resolve();
+    return Promise.all([S.summaryA, S.summaryB].map(function (id) {
+      return T.api("questions/" + id).then(function (d) { return d.question.data; }, function (e) { return e.status === 404 ? null : undefined; });
+    })).then(function (r) {
+      var changed = false;
+      if (r[0] !== undefined && JSON.stringify(r[0]) !== JSON.stringify(S.snapA)) { S.snapA = r[0]; changed = true; }
+      if (r[1] !== undefined && JSON.stringify(r[1]) !== JSON.stringify(S.snapB)) { S.snapB = r[1]; changed = true; }
+      sumMissing = r[0] === null || r[1] === null;
+      if (changed) { if (view !== "read") saveSettings(); }
+      renderSlide();
     });
   }
   function loadEvents() {
@@ -271,6 +303,9 @@
       var q = questions.find(function (x) { return x.id === S.questionId; });
       if (q) { S.snapshot = q.data; S.number = q.pos; missing = false; }
       else if (S.questionId) missing = true;
+      var qa = questions.find(function (x) { return x.id === S.summaryA; }), qb = questions.find(function (x) { return x.id === S.summaryB; });
+      if (qa) S.snapA = qa.data; if (qb) S.snapB = qb.data;
+      sumMissing = (!!S.summaryA && !qa) || (!!S.summaryB && !qb);
       saveSettings();
     }, function (e) { if (e.status === 404) { log("evento non trovato"); questions = []; } else throw e; });
   }
@@ -308,7 +343,22 @@
     if (S.eventId) {
       html += '<label class="lbl">Tipo di slide</label><div class="seg">' +
         '<label><input type="radio" name="kind" value="question"' + (S.kind === "question" ? " checked" : "") + '>Domanda</label>' +
-        '<label><input type="radio" name="kind" value="welcome"' + (S.kind === "welcome" ? " checked" : "") + '>Benvenuto (solo QR)</label></div>';
+        '<label><input type="radio" name="kind" value="welcome"' + (S.kind === "welcome" ? " checked" : "") + '>Benvenuto (solo QR)</label>' +
+        '<label><input type="radio" name="kind" value="summary"' + (S.kind === "summary" ? " checked" : "") + '>Riepilogo di due domande</label></div>';
+      if (S.kind === "summary") {
+        // solo domande a scelta multipla (le torte)
+        var mcs = questions.filter(function (q) { return q.data.kind !== "cw"; });
+        var opt = function (sel) {
+          return '<option value="">— scegli una domanda —</option>' + mcs.map(function (q) {
+            return '<option value="' + esc(q.id) + '"' + (q.id === sel ? " selected" : "") + '>' + q.pos + '. ' + esc(q.data.title || "(domanda senza testo)") + '</option>';
+          }).join("");
+        };
+        html += '<label class="lbl">Domanda a sinistra</label><div class="inline"><select id="selSA">' + opt(S.summaryA) + '</select></div>' +
+          '<label class="lbl">Domanda a destra</label><div class="inline"><select id="selSB">' + opt(S.summaryB) + '</select></div>' +
+          '<label class="lbl" for="sTitle">Titolo della slide <span class="muted" style="font-weight:400">(facoltativo)</span></label><input type="text" id="sTitle" maxlength="120">' +
+          '<div class="hint">I risultati delle due domande compaiono affiancati, come torte. Mentre questa slide è in proiezione i telefoni restano in attesa: nessuno può votare.</div>' +
+          (sumMissing ? '<div class="banner red">Una delle domande scelte è stata eliminata. Scegline un\'altra.</div>' : '');
+      }
       if (S.kind === "question") {
         html += '<label class="lbl">Domanda mostrata in questa slide</label><div class="inline"><select id="selQ">' + qOpts + '</select></div>' +
           '<div class="qe-actions" style="margin-top:10px"><button class="btn small" id="bNewQ">+ Nuova domanda</button>' +
@@ -355,7 +405,7 @@
           (S.snapshot && S.snapshot.kind === "cw" && S.snapshot.answer != null ? '<button class="btn small" id="bAnsSlide">È la slide della risposta esatta</button>' : '') +
           '<button class="btn ' + (S.snapshot && S.snapshot.reveal === "click" ? 'ghost ' : '') + 'small" id="bDupQ">Crea una domanda indipendente</button>' +
           '<button class="btn ghost small" id="bKeep">Va bene così</button></div></div>';
-      } else {
+      } else if (S.kind === "welcome") {
         html += '<label class="lbl" for="wTitle">Titolo della slide</label><input type="text" id="wTitle" maxlength="120">';
       }
     }
@@ -383,6 +433,14 @@
     Array.prototype.forEach.call(document.querySelectorAll('input[name="kind"]'), function (r) {
       r.onchange = function () { S.kind = r.value; saveSettings(); drawEditor(); };
     });
+    function pickSum(which, id) {
+      var q = questions.find(function (x) { return x.id === id; });
+      S["summary" + which] = id || null; S["snap" + which] = q ? q.data : null;
+      sumMissing = false; sumResults = {}; saveSettings(); drawEditor();
+    }
+    if ($("selSA")) $("selSA").onchange = function () { pickSum("A", this.value); };
+    if ($("selSB")) $("selSB").onchange = function () { pickSum("B", this.value); };
+    if ($("sTitle")) { $("sTitle").value = S.summaryTitle || ""; $("sTitle").onchange = function () { S.summaryTitle = this.value.trim(); saveSettings(); drawMini(); }; }
     if ($("selQ")) $("selQ").onchange = function () {
       S.questionId = this.value || null; missing = false; copyNotice = false; S.results = "hidden"; S.chart = ""; S.answer = "hidden"; S.content = "results"; S.splitView = "hist";
       var q = questions.find(function (x) { return x.id === S.questionId; });
@@ -431,6 +489,11 @@
     mini.setQuestionOnly(S.content === "question");
     mini.setSplitView(S.splitView);
     if (S.kind === "welcome") mini.setWelcome(S.welcomeTitle);
+    else if (S.kind === "summary") {
+      mini.setSummary(S.snapA ? Object.assign({ id: S.summaryA }, S.snapA) : null, S.snapB ? Object.assign({ id: S.summaryB }, S.snapB) : null, S.summaryTitle);
+      var m0 = mini;
+      sumIds().forEach(function (id) { T.api("questions/" + id + "/results").then(function (r) { if (mini === m0) m0.setResults(r); }, function () {}); });
+    }
     else if (S.snapshot) { mini.setQuestion(Object.assign({ id: S.questionId }, S.snapshot), S.number); mini.setRevealed(isRevealed()); }
     else mini.setWelcome(S.eventId ? "Scegli o crea una domanda" : "Scegli un evento");
     setTimeout(function () { mini.fit(); mini.render(); }, 30);

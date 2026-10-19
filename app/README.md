@@ -34,6 +34,11 @@ Al primo avvio, aprendo `/admin` si crea il primo utente.
   un titolo neutro. Una domanda Crowd Wisdom successiva può essere "separata per gruppi": due istogrammi con la stessa
   scala oppure, per lo svelamento, solo le due mediane/medie in grande (add-in: "Gruppi in questa slide"; browser: tasto **G**).
 
+## Slide di riepilogo
+Nell'add-in, tipo di slide **"Riepilogo di due domande"**: i risultati di due domande a scelta multipla affiancati come torte
+(testo della domanda, totale al centro, percentuali sotto). Mentre è in proiezione i telefoni restano in attesa.
+La scelta è salvata nella slide; il server fornisce i risultati con il messaggio `watch` (`qs`: più domande). Non disponibile in `/present`.
+
 ## Test di carico
 `loadtest/carico.mjs` simula 1000 telefoni (voti, cadute di rete, riconnessione di massa, caduta della presentazione)
 e controlla che nessun voto vada perso o venga contato due volte. Si lancia da GitHub → Actions → "Test di carico"
