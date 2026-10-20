@@ -39,6 +39,11 @@ Nell'add-in, tipo di slide **"Riepilogo di due domande"**: i risultati di due do
 (testo della domanda, totale al centro, percentuali sotto). Mentre è in proiezione i telefoni restano in attesa.
 La scelta è salvata nella slide; il server fornisce i risultati con il messaggio `watch` (`qs`: più domande). Non disponibile in `/present`.
 
+## Schermate di attesa del pubblico
+- **Tieni d'occhio lo schermo:** la presentazione è in corso ma non c'è una domanda aperta.
+- **La presentazione non è in corso:** nessuna slide in proiezione da 3 minuti (o presentazione mai avviata); torna normale appena si riprende.
+- **L'evento è concluso – Grazie per aver partecipato:** evento chiuso dal pannello (pulsante "Chiudi evento", reversibile con "Riapri evento"); non si vota.
+
 ## Test di carico
 `loadtest/carico.mjs` simula 1000 telefoni (voti, cadute di rete, riconnessione di massa, caduta della presentazione)
 e controlla che nessun voto vada perso o venga contato due volte. Si lancia da GitHub → Actions → "Test di carico"

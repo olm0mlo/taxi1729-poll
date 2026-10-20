@@ -5,6 +5,7 @@
 // Durable Object, "Hub", che conserva i dati in un database SQLite interno e tiene aperti
 // i collegamenti con PowerPoint, il pannello e i telefoni del pubblico.
 
+const IDLE_MS = 3 * 60 * 1000;      // nessuna slide in proiezione da 3 minuti: i telefoni mostrano "La presentazione non è in corso"
 const STALE_MS = 8000;              // senza conferme dalla slide per 8 s, la domanda si chiude per il pubblico
 const HIDE_GRACE_MS = 2500;         // attesa prima di chiudere una domanda quando la sua slide si chiude
 const LOCK_MS = 10 * 60 * 1000;     // una presentazione senza segnali da 10 minuti è considerata "sospesa"
@@ -140,8 +141,11 @@ export class Hub {
     this.live = new Map();        // eventId -> stato della presentazione
     for (const r of this.all("SELECT * FROM live")) {
       this.live.set(r.event_id, { qid: r.question_id || null, since: r.since, userId: r.user_id, userName: r.user_name,
-        lastBeat: Date.now(), revealed: !!r.revealed });
+        lastBeat: r.last_beat || Date.now(), revealed: !!r.revealed });
     }
+    for (const L of this.live.values()) L.idle = Date.now() - L.lastBeat > IDLE_MS;
+    this.closedCache = new Map(); // eventId -> evento chiuso (true/false)
+    this.alarmChecked = false;
     this.dirty = new Set(); this.flushTimer = null;
     this.sims = new Map();        // simulazioni di voto in corso, per domanda
     this.loginFails = new Map();
@@ -165,6 +169,11 @@ export class Hub {
     // v2: voti simulati (per provare la grafica), marcati a parte
     const cols = this.sql.exec("PRAGMA table_info(votes)").toArray().map(c => c.name);
     if (!cols.includes("sim")) this.sql.exec("ALTER TABLE votes ADD COLUMN sim INTEGER NOT NULL DEFAULT 0");
+    // v3: evento chiuso dal pannello; ultimo segnale della presentazione (per capire se è in corso)
+    const ecols = this.sql.exec("PRAGMA table_info(events)").toArray().map(c => c.name);
+    if (!ecols.includes("closed")) this.sql.exec("ALTER TABLE events ADD COLUMN closed INTEGER NOT NULL DEFAULT 0");
+    const lcols = this.sql.exec("PRAGMA table_info(live)").toArray().map(c => c.name);
+    if (!lcols.includes("last_beat")) this.sql.exec("ALTER TABLE live ADD COLUMN last_beat INTEGER");
   }
   all(q, ...a) { return this.sql.exec(q, ...a).toArray(); }
   get(q, ...a) { return this.all(q, ...a)[0] || null; }
@@ -186,7 +195,7 @@ export class Hub {
   pubEvent(e) {
     const L = this.live.get(e.id);
     const presenting = L && Date.now() - L.lastBeat < LOCK_MS ? { by: L.userName, userId: L.userId, q: L.qid } : null;
-    return { id: e.id, code: e.code, name: e.name, template: e.template, created: e.created, updated: e.updated, presenting };
+    return { id: e.id, code: e.code, name: e.name, template: e.template, created: e.created, updated: e.updated, presenting, closed: !!e.closed };
   }
 
   // ----- autenticazione -----
@@ -476,15 +485,23 @@ export class Hub {
   saveLive(eventId) {
     const L = this.live.get(eventId);
     if (!L) { this.run("DELETE FROM live WHERE event_id = ?", eventId); return; }
-    this.run("INSERT OR REPLACE INTO live (event_id, question_id, since, user_id, user_name, revealed) VALUES (?, ?, ?, ?, ?, ?)",
-      eventId, L.qid, L.since, L.userId, L.userName, L.revealed ? 1 : 0);
+    this.run("INSERT OR REPLACE INTO live (event_id, question_id, since, user_id, user_name, revealed, last_beat) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      eventId, L.qid, L.since, L.userId, L.userName, L.revealed ? 1 : 0, L.lastBeat);
+    L.savedBeat = L.lastBeat;
   }
   liveMsg(eventId) {
     const L = this.live.get(eventId);
     return { t: "live", q: L ? L.qid : null, revealed: L ? !!L.revealed : false, by: L ? L.userName : null, userId: L ? L.userId : null };
   }
+  isClosed(eventId) {
+    if (!this.closedCache.has(eventId)) { const e = this.get("SELECT closed FROM events WHERE id = ?", eventId); this.closedCache.set(eventId, !!(e && e.closed)); }
+    return this.closedCache.get(eventId);
+  }
   audienceState(eventId, voter) {
     const L = this.live.get(eventId);
+    // evento chiuso dal pannello: "L'evento è concluso"; nessuna presentazione da 3 minuti: "La presentazione non è in corso"
+    if (this.isClosed(eventId)) return { t: "state", q: null, voted: false, closed: true, idle: false };
+    const idle = !L || !!L.idle;
     const q = L && L.qid ? this.getQ(L.qid) : null;
     // domanda con due versioni: ogni telefono legge quella del suo gruppo
     const title = q ? (q.data.titleB && voter && this.groupFor(q.id, voter, true) === 1 ? q.data.titleB : q.data.title) : "";
@@ -493,7 +510,8 @@ export class Hub {
       q: q ? (q.data.kind === "cw"
         ? { id: q.id, kind: "cw", title: title, unit: q.data.unit, decimals: q.data.decimals, min: q.data.min, max: q.data.max, error: q.data.error }
         : { id: q.id, title: title, options: q.data.options, multi: !!q.data.multi }) : null,
-      voted: q ? this.tally(q.id).byVoter.has(voter) : false
+      voted: q ? this.tally(q.id).byVoter.has(voter) : false,
+      idle: !q && idle, closed: false
     };
   }
   pushLive(eventId) {
@@ -511,7 +529,8 @@ export class Hub {
     const now = Date.now(); let any = false;
     for (const [ev, L] of this.live) {
       if (L.qid && now - L.lastBeat > STALE_MS) { L.qid = null; L.revealed = false; this.saveLive(ev); this.pushLive(ev); }
-      if (L.qid) any = true;
+      if (!L.idle && now - L.lastBeat > IDLE_MS) { L.idle = true; this.saveLive(ev); this.pushLive(ev); }
+      if (L.qid || !L.idle) any = true;
     }
     if (any) await this.ctx.storage.setAlarm(now + 4000);
   }
@@ -525,6 +544,8 @@ export class Hub {
   // ---------------------------------------------------------------------------------------------
   async fetch(request) {
     const url = new URL(request.url);
+    // dopo un riavvio: se c'era una presentazione, l'allarme deve continuare a controllare se è ancora in corso
+    if (!this.alarmChecked) { this.alarmChecked = true; if ([...this.live.values()].some(L => !L.idle)) await this.ensureAlarm(); }
     try {
       if (url.pathname === "/ws") return this.openSocket(request, url);
       return await this.api(request, url);
@@ -626,6 +647,11 @@ export class Hub {
         const name = b.name !== undefined ? (str(b.name, 150) || ev.name) : ev.name;
         const code = b.code !== undefined && String(b.code).toUpperCase() !== ev.code ? await this.pickCode(b.code) : ev.code;
         this.run("UPDATE events SET name = ?, code = ?, updated = ? WHERE id = ?", name, code, Date.now(), ev.id);
+        if (b.closed !== undefined) {
+          // chiude o riapre l'evento: i telefoni collegati cambiano schermata subito
+          this.run("UPDATE events SET closed = ? WHERE id = ?", b.closed ? 1 : 0, ev.id);
+          this.closedCache.delete(ev.id); this.pushLive(ev.id);
+        }
         this.evByCode = null;
         return json({ event: this.pubEvent(this.getEvent(ev.id)) });
       }
@@ -844,6 +870,7 @@ export class Hub {
 
     if (att.role === "audience") {
       if (msg.t !== "vote") return;
+      if (this.isClosed(att.eventId)) return reply({ t: "error", msg: "L'evento è concluso." });
       const L = this.live.get(att.eventId);
       if (!L || !L.qid || L.qid !== msg.q) return reply({ t: "error", msg: "Questa domanda non è più aperta." });
       const q = this.getQ(msg.q);
@@ -889,15 +916,16 @@ export class Hub {
         if (L && L.userId !== att.userId && now - L.lastBeat < LOCK_MS && !msg.force) {
           return reply({ t: "locked", by: L.userName, since: L.since });
         }
-        const changed = !L || L.qid !== qid || L.userId !== att.userId;
+        const changed = !L || L.qid !== qid || L.userId !== att.userId || L.idle;
         if (!L || L.userId !== att.userId || L.qid !== qid) {
           L = { qid, since: now, userId: att.userId, userName: att.userName, lastBeat: now, revealed: false };
           this.live.set(ev, L);
         }
-        L.lastBeat = now; L.hideToken = null;
+        L.lastBeat = now; L.hideToken = null; L.idle = false;
+        if (!changed && now - (L.savedBeat || 0) > 30000) this.saveLive(ev);   // ultimo segnale salvato ogni 30 s (serve dopo un riavvio)
         L.k = typeof msg.k === "string" ? msg.k.slice(0, 60) : null;   // quale slide sta mostrando la domanda
         if (changed) { this.saveLive(ev); this.pushLive(ev); if (qid) reply(this.results(qid)); }
-        if (qid) await this.ensureAlarm();
+        await this.ensureAlarm();
         return;
       }
       if (msg.t === "hide") {

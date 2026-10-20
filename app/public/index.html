@@ -107,7 +107,14 @@
   function onMsg(m) {
     if (m.t === "state") {
       var q = m.q;
-      if (!q) { if (current) { current = null; renderWait(); } return; }
+      if (!q) {
+        // nessuna domanda aperta: evento concluso, presentazione non in corso, oppure attesa della prossima domanda
+        current = null;
+        var scr = m.closed ? "closed" : m.idle ? "idle" : "wait";
+        if (scr !== screen) { if (scr === "closed") renderClosed(); else if (scr === "idle") renderIdle(); else renderWait(); }
+        return;
+      }
+      screen = "";
       if (m.voted) votedIds[q.id] = true;
       if (pending && pending.q !== q.id) pending = null;
       if (pending && !m.voted) window.__resend();      // il voto si era perso con la connessione: lo rispediamo
@@ -137,8 +144,18 @@
     document.getElementById("go").onclick = go;
     inp.onkeydown = function (e) { if (e.key === "Enter") go(); };
   }
+  var screen = "";   // schermata di attesa mostrata ora ("wait", "idle", "closed"), per non ridisegnarla a ogni messaggio
+  function renderIdle() {
+    screen = "idle";
+    main.innerHTML = '<div class="screen center"><div class="pulse" style="background:#56707a;animation:none"></div><h2>La presentazione<br>non è in corso</h2></div>';
+  }
+  function renderClosed() {
+    screen = "closed";
+    main.innerHTML = '<div class="screen center"><div class="check">✓</div><h2>L\'evento è concluso</h2><p class="sub">Grazie per aver partecipato</p></div>';
+  }
   function renderWait() {
-    main.innerHTML = '<div class="screen center"><div class="pulse"></div><h2>Tieni d\'occhio lo schermo</h2>' +
+    screen = "wait";
+    main.innerHTML = '<div class="screen center"><div class="pulse"></div><h2>Tieni d\'occhio<br>lo schermo</h2>' +
       '<p class="sub">La prossima domanda comparirà qui in automatico.</p></div>';
   }
   function renderDone() {

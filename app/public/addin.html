@@ -69,7 +69,7 @@
   };
   var KEYS = Object.keys(S);
   var officeReady = false, view = null, curSlide = null, active = false, preview = false;
-  var conn = null, connEvent = null, beatTimer = null, live = { q: null, revealed: false }, lastResults = null, lockedBy = null, force = false;
+  var conn = null, connEvent = null, beatTimer = null, live = { q: null, revealed: false }, lastResults = null, lockedBy = null, force = false, evClosed = false;
   var sumResults = {}, sumMissing = false;   // riepilogo: ultimi risultati ricevuti per ciascuna delle due domande
   function sumIds() { return [S.summaryA, S.summaryB].filter(Boolean); }
   var me = null, events = [], questions = [], editing = null, copyNotice = false, missing = false;
@@ -228,6 +228,7 @@
     } else slide.setWelcome("Scegli una domanda dal pannello dell'add-in");
     if (!S.eventId && view === "read") slide.setNotice("Add-in non configurato: apri la slide in modalità Modifica");
     else if (!T.token() && view === "read") slide.setNotice("Accedi dal pannello dell'add-in (modalità Modifica) per collegare la slide");
+    else if (evClosed && view === "read") slide.setNotice("Evento chiuso: il pubblico vede «L'evento è concluso». Riaprilo dal pannello web");
     else if (!lockedBy) slide.setNotice(S.kind === "summary" ? (sumMissing ? "Una delle domande del riepilogo è stata eliminata dal pannello" : null)
       : (missing ? "Questa domanda è stata eliminata dal pannello" : null));
   }
@@ -299,7 +300,7 @@
     if (!S.eventId) { questions = []; return Promise.resolve(); }
     return T.api("events/" + S.eventId).then(function (d) {
       questions = d.questions;
-      S.eventCode = d.event.code; S.eventName = d.event.name;
+      S.eventCode = d.event.code; S.eventName = d.event.name; evClosed = !!d.event.closed;
       var q = questions.find(function (x) { return x.id === S.questionId; });
       if (q) { S.snapshot = q.data; S.number = q.pos; missing = false; }
       else if (S.questionId) missing = true;
@@ -339,7 +340,8 @@
     }).join("");
     var html = head + '<div class="row2"><div class="card panel">' +
       '<label class="lbl" style="margin-top:0">Evento</label><div class="inline"><select id="selEv">' + evOpts + '</select><button class="btn ghost small" id="bNewEv">+ Nuovo</button></div>' +
-      (S.eventId ? '<div class="hint">Codice per il pubblico: <b>' + esc(S.eventCode || "—") + '</b></div>' : '<div class="hint">Tutte le slide della presentazione dovrebbero usare lo stesso evento.</div>');
+      (S.eventId ? '<div class="hint">Codice per il pubblico: <b>' + esc(S.eventCode || "—") + '</b></div>' +
+        (evClosed ? '<div class="banner">Questo evento è <b>chiuso</b>: il pubblico vede «L\'evento è concluso». Per riaprirlo usa il pannello web.</div>' : '') : '<div class="hint">Tutte le slide della presentazione dovrebbero usare lo stesso evento.</div>');
     if (S.eventId) {
       html += '<label class="lbl">Tipo di slide</label><div class="seg">' +
         '<label><input type="radio" name="kind" value="question"' + (S.kind === "question" ? " checked" : "") + '>Domanda</label>' +
@@ -592,7 +594,9 @@
     if (v === "read") {
       slide.arm(); nudgeRepaint(); refreshQuestion();
       if (S.eventId && T.token()) T.api("events/" + S.eventId).then(function (d) {
-        if (d.event.name !== S.eventName || d.event.code !== S.eventCode) { S.eventName = d.event.name; S.eventCode = d.event.code; renderSlide(); }
+        evClosed = !!d.event.closed;
+        if (d.event.name !== S.eventName || d.event.code !== S.eventCode) { S.eventName = d.event.name; S.eventCode = d.event.code; }
+        renderSlide();
       }, function () {});
     }
     else if (me) loadQuestions().then(drawEditor, function () {});

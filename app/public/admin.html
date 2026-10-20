@@ -157,6 +157,7 @@
         return '<div class="card item"><div class="main"><a class="ttl" href="#/event/' + esc(e.id) + '">' + esc(e.name) + '</a><div class="muted" style="font-size:13px;margin-top:3px">' +
           '<span class="chip yellow">Codice ' + esc(e.code) + '</span><span class="chip">' + e.questions + (e.questions === 1 ? ' domanda' : ' domande') + '</span>' +
           (e.presenting ? '<span class="chip live">● In presentazione: ' + esc(e.presenting.by) + '</span>' : '') +
+          (e.closed ? '<span class="chip">Concluso</span>' : '') +
           ' creato da ' + esc(e.author || "—") + ' · modificato il ' + fmtDate(e.updated) + '</div></div>' +
           '<a class="btn ghost small" href="#/event/' + esc(e.id) + '">Apri</a></div>';
       }).join("");
@@ -206,7 +207,9 @@
         '<a class="btn ghost" id="exp" href="#">Esporta risultati (Excel)</a>' +
         '<button class="btn ghost" id="clearSim">Cancella voti simulati</button>' +
         '<button class="btn danger" id="clearAll">Cancella tutti i risultati</button>' +
+        '<button class="btn ghost" id="closeEv">' + (ev.closed ? "Riapri evento" : "Chiudi evento") + '</button>' +
         '<button class="btn danger" id="delEv">Elimina evento</button></div>' +
+        (ev.closed ? '<div class="card" style="background:#fff6d6;border-color:#e8d38a;margin:0 0 14px;padding:10px 14px"><b>Evento chiuso.</b> Chi apre il link vede «L\'evento è concluso – Grazie per aver partecipato» e non può votare. I risultati restano qui.</div>' : '') +
         '<p class="muted" style="margin:-4px 0 16px">Link per il pubblico: <a href="' + esc(T.joinUrl(ev.code)) + '" target="_blank">' + esc(T.joinUrl(ev.code)) + '</a></p>' +
         '<div class="list" id="qlist"></div>' +
         '<div id="newBox"></div>';
@@ -225,6 +228,11 @@
       document.getElementById("clearAll").onclick = function () {
         if (!confirmDo("Cancellare TUTTI i risultati di questo evento? Le domande restano, i voti vengono eliminati definitivamente.")) return;
         T.api("events/" + id + "/votes", { method: "DELETE" }).then(load);
+      };
+      document.getElementById("closeEv").onclick = function () {
+        var close = !ev.closed;
+        if (close && !confirmDo("Chiudere l'evento? Il pubblico vedrà «L'evento è concluso» e non potrà più votare. Potrai riaprirlo in qualsiasi momento.")) return;
+        T.api("events/" + id, { method: "PATCH", body: { closed: close } }).then(function (d) { state.event = d.event; draw(); }, function (e) { alert(e.message); });
       };
       document.getElementById("delEv").onclick = function () {
         if (!confirmDo("Eliminare definitivamente l'evento \"" + ev.name + "\" con tutte le domande e i risultati?")) return;
