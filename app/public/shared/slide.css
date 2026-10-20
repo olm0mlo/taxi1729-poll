@@ -106,5 +106,5 @@
 .t-bignum .ans { background: #e8ea6e; color: #02151f; font-weight: 800; font-size: 36px; padding: 12px 34px; border-radius: 99px; transition: opacity .45s ease; }
 .t-bignum .ans.off { opacity: 0; }
 
-/* Slide di riepilogo: niente numero della domanda, solo il nome dell'evento */
-.t-stage.summary .t-kicker b { display: none; }
+/* Sopra il titolo solo il nome dell'evento, senza il numero della domanda (in tutte le slide) */
+.t-kicker b { display: none; }
