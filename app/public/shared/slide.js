@@ -56,15 +56,10 @@
     var title = h("div", "t-title"); left.appendChild(title);
     var welcomeText = h("div", "t-welcome-text hidden");
     function drawWelcomeText() {
-      // istruzioni della slide di benvenuto: indirizzo e codice per chi non riesce a inquadrare il QR
+      // slide di benvenuto: in basso, in piccolo, l'indirizzo per chi non riesce a inquadrare il QR (codice evidenziato)
       welcomeText.innerHTML = "";
-      welcomeText.appendChild(document.createTextNode("Inquadra il QR code"));
-      welcomeText.appendChild(h("br"));
-      welcomeText.appendChild(document.createTextNode("oppure vai su "));
-      welcomeText.appendChild(h("b", null, location.host));
-      welcomeText.appendChild(h("br"));
-      welcomeText.appendChild(document.createTextNode("e inserisci il codice"));
-      welcomeText.appendChild(h("div", "t-wcode", st.code || "—"));
+      welcomeText.appendChild(document.createTextNode("oppure vai su " + location.host + "/?e="));
+      welcomeText.appendChild(h("b", null, st.code || "—"));
     }
     left.appendChild(welcomeText);
     var chart = h("div", "t-chart"); left.appendChild(chart);
@@ -120,7 +115,14 @@
       total.classList.toggle("hidden", welcome);
       kNum.textContent = welcome ? "00" : String(st.number).padStart(2, "0");
       kTxt.textContent = welcome ? "BENVENUTI" : (st.eventName || "SONDAGGIO");
-      if (welcome) { title.className = "t-title"; title.textContent = st.welcomeTitle || "Partecipa con il tuo smartphone"; chart.innerHTML = ""; view = null; return; }
+      if (welcome) {
+        title.className = "t-title";
+        // testo fisso "Inquadra il QR code"; un testo diverso arriva solo per i messaggi dell'add-in ("Scegli un evento", …)
+        if (st.welcomeTitle) title.textContent = st.welcomeTitle;
+        else { title.innerHTML = ""; title.appendChild(document.createTextNode("Inquadra")); title.appendChild(h("br")); title.appendChild(document.createTextNode("il QR code")); }
+        title.classList.toggle("msg", !!st.welcomeTitle);
+        chart.innerHTML = ""; view = null; return;
+      }
       var q = st.q || { title: "", options: [] };
       var cw = q.kind === "cw", qonly = cw && st.qonly, noTitle = cw && !q.showTitle && !qonly;
       stage.classList.toggle("qonly", qonly);
@@ -810,7 +812,7 @@
         if (st.mode !== "question" || !st.q) return;
         st.armed = true; if (view && view.arm) view.arm();
       },
-      setWelcome: function (t) { st.mode = "welcome"; st.welcomeTitle = t; render(); },
+      setWelcome: function (t) { st.mode = "welcome"; st.welcomeTitle = t || ""; render(); },
       setQuestion: function (q, number) {
         if (!st.q || !q || st.q.id !== q.id) { view = null; chart.innerHTML = ""; totalNum._v = null; }
         st.mode = "question"; st.q = q; st.number = number || 1; render();

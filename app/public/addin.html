@@ -216,7 +216,7 @@
     slide.setAnswerVisible(S.answer === "shown");
     slide.setQuestionOnly(S.content === "question");
     slide.setSplitView(S.splitView);
-    if (S.kind === "welcome") slide.setWelcome(S.welcomeTitle);
+    if (S.kind === "welcome") slide.setWelcome();
     else if (S.kind === "summary") {
       slide.setSummary(S.snapA ? Object.assign({ id: S.summaryA }, S.snapA) : null, S.snapB ? Object.assign({ id: S.summaryB }, S.snapB) : null, S.summaryTitle);
       sumIds().forEach(function (id) { if (sumResults[id]) slide.setResults(sumResults[id]); });
@@ -408,7 +408,7 @@
           '<button class="btn ' + (S.snapshot && S.snapshot.reveal === "click" ? 'ghost ' : '') + 'small" id="bDupQ">Crea una domanda indipendente</button>' +
           '<button class="btn ghost small" id="bKeep">Va bene così</button></div></div>';
       } else if (S.kind === "welcome") {
-        html += '<label class="lbl" for="wTitle">Titolo della slide</label><input type="text" id="wTitle" maxlength="120">';
+        html += '<div class="hint">La slide mostra il QR code, la scritta «Inquadra il QR code» e, in piccolo, l\'indirizzo con il codice dell\'evento.</div>';
       }
     }
     html += '</div><div>' +
@@ -490,7 +490,7 @@
     mini.setAnswerVisible(S.answer === "shown");
     mini.setQuestionOnly(S.content === "question");
     mini.setSplitView(S.splitView);
-    if (S.kind === "welcome") mini.setWelcome(S.welcomeTitle);
+    if (S.kind === "welcome") mini.setWelcome();
     else if (S.kind === "summary") {
       mini.setSummary(S.snapA ? Object.assign({ id: S.summaryA }, S.snapA) : null, S.snapB ? Object.assign({ id: S.summaryB }, S.snapB) : null, S.summaryTitle);
       var m0 = mini;

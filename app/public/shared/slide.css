@@ -25,16 +25,19 @@
 .t-total b { color: #fff; font-weight: 800; }
 .t-logo { position: absolute; right: 96px; bottom: 30px; height: 56px; }
 .t-welcome-text { font-family: "Raleway", sans-serif; font-weight: 300; font-size: 42px; line-height: 1.4; color: #9fb3b9; max-width: 92%; }
-/* Slide di benvenuto: solo il titolo e le istruzioni a sinistra, QR grande a destra; tutto centrato in verticale */
-.t-stage.welcome .t-canvas { grid-template-columns: 1fr 560px; gap: 130px; align-items: center; padding: 90px 150px 130px; }
+/* Slide di benvenuto: QR grande a sinistra, "Inquadra il QR code" a destra con una linea gialla sotto,
+   indirizzo in piccolo in basso a sinistra, allineato al logo */
+.t-stage.welcome .t-canvas { grid-template-columns: 620px 1fr; gap: 110px; align-items: center; padding: 80px 150px 170px; }
 .t-stage.welcome .t-left { justify-content: center; }
 .t-stage.welcome .t-kicker { display: none; }
-.t-stage.welcome .t-title { font-size: 100px; line-height: 1.04; margin: 0 0 48px; max-width: none; }
-.t-stage.welcome .t-welcome-text { font-size: 38px; line-height: 1.45; color: #9fb3b9; }
-.t-stage.welcome .t-welcome-text b { color: #fff; font-weight: 600; }
+.t-stage.welcome .t-title { font-size: 132px; line-height: 1.04; margin: 0; max-width: none; }
+.t-stage.welcome .t-title::after { content: ""; display: block; width: 120px; height: 10px; border-radius: 5px; background: #e8ea6e; margin-top: 50px; }
+.t-stage.welcome .t-title.msg { font-size: 72px; }
+.t-stage.welcome .t-welcome-text { position: absolute; left: 150px; bottom: 30px; height: 56px; line-height: 56px; font-size: 34px; color: #9fb3b9; max-width: 1350px; white-space: nowrap; }
+.t-stage.welcome .t-welcome-text b { font-family: "Inter", sans-serif; color: #fff; font-weight: 800; }
 .t-wcode { font-family: "Inter", sans-serif; font-weight: 800; font-size: 96px; color: #fff; letter-spacing: .12em; line-height: 1; margin-top: 18px; }
-.t-stage.welcome .t-right { position: static; pointer-events: auto; display: flex; align-items: center; justify-content: center; }
-.t-stage.welcome .t-qr { position: static; width: 560px; padding: 26px; border-radius: 22px; }
+.t-stage.welcome .t-right { position: static; pointer-events: auto; display: flex; align-items: center; justify-content: center; order: -1; }
+.t-stage.welcome .t-qr { position: static; width: 620px; padding: 26px; border-radius: 22px; }
 .t-stage.welcome .t-code, .t-stage.welcome .t-join { display: none; }
 .t-notice { position: absolute; left: 96px; right: 96px; bottom: 26px; height: 64px; display: flex; align-items: center; gap: 16px;
   font-size: 26px; color: #fff; }

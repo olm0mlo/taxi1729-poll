@@ -67,7 +67,7 @@
     idx = Math.max(0, Math.min(total - 1, i));
     var q = current();
     document.getElementById("pos").textContent = (idx === 0 ? "Benvenuto" : idx + " / " + questions.length);
-    if (!q) slide.setWelcome("Partecipa con il tuo smartphone");
+    if (!q) slide.setWelcome();
     else {
       slide.setChartOverride(chartOver[q.id] || null);
       slide.setAnswerVisible(!!answerOn[q.id]);
