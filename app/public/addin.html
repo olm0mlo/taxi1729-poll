@@ -70,6 +70,7 @@
   var KEYS = Object.keys(S);
   var officeReady = false, view = null, curSlide = null, active = false, preview = false;
   var conn = null, connEvent = null, beatTimer = null, live = { q: null, revealed: false }, lastResults = null, lockedBy = null, force = false, evClosed = false;
+  var loading = !!T.token();   // dati del pannello in arrivo: si mostra "Caricamento…" invece del modulo di accesso
   var sumResults = {}, sumMissing = false;   // riepilogo: ultimi risultati ricevuti per ciascuna delle due domande
   function sumIds() { return [S.summaryA, S.summaryB].filter(Boolean); }
   var me = null, events = [], questions = [], editing = null, copyNotice = false, missing = false;
@@ -317,6 +318,10 @@
     var ed = $("editor");
     var head = '<div class="head"><img src="/assets/logo-positivo.png" alt="Taxi1729"><span class="grow"></span>' +
       (me ? '<span class="muted">' + esc(me.name) + '</span> <button class="btn ghost small" id="bOut">Esci</button>' : '') + '</div>';
+    if (T.token() && !me && loading) {
+      ed.innerHTML = head + '<div class="card panel" style="max-width:420px"><div class="muted">Caricamento…</div></div>';
+      return;
+    }
     if (!T.token() || !me) {
       ed.innerHTML = head + '<div class="card panel" style="max-width:420px"><h3>Accedi</h3><p class="muted" style="margin:4px 0 0">Usa le stesse credenziali del pannello web.</p>' +
         '<form id="fl"><label class="lbl">Email</label><input type="email" id="lem" autocomplete="username" required>' +
@@ -571,19 +576,25 @@
   }
 
   // ------------------------------------------------------------------ avvio
+  // Avvio del pannello: le tre richieste (utente, eventi, domande dell'evento) partono insieme, non una dopo l'altra.
+  // Nel frattempo si vede "Caricamento…" e non il modulo di accesso.
   function bootData() {
-    if (!T.token()) { drawEditor(); return; }
-    T.api("me").then(function (d) {
-      me = d.user;
-      if (!S.eventId) {
-        var last = T.store("t1729-last-event");
-        if (last) S.eventId = last;
-      }
-      return loadEvents().then(function () {
-        if (S.eventId && !events.some(function (e) { return e.id === S.eventId; })) { S.eventId = null; S.eventCode = null; }
-        return loadQuestions();
-      });
-    }).then(function () { renderMode(); }, function (e) {
+    if (!T.token()) { loading = false; drawEditor(); return; }
+    loading = true; drawEditor();
+    var t0 = Date.now();
+    if (!S.eventId) {
+      var last = T.store("t1729-last-event");
+      if (last) S.eventId = last;
+    }
+    Promise.all([
+      T.api("me").then(function (d) { me = d.user; }),
+      loadEvents(),
+      S.eventId ? loadQuestions() : Promise.resolve()
+    ]).then(function () {
+      if (S.eventId && !events.some(function (e) { return e.id === S.eventId; })) { S.eventId = null; S.eventCode = null; questions = []; }
+      loading = false; log("pannello pronto in " + (Date.now() - t0) + " ms"); renderMode();
+    }, function (e) {
+      loading = false;
       if (e && e.status === 401) { T.setToken(null); me = null; }
       log("caricamento dati: " + (e && e.message)); renderMode();
     });
@@ -600,6 +611,7 @@
       }, function () {});
     }
     else if (me) loadQuestions().then(drawEditor, function () {});
+    else if (T.token() && !initial) bootData();
   }
   function boot(inOffice) {
     officeReady = inOffice;
