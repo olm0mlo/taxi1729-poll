@@ -181,12 +181,22 @@
           if (q && (q.votes !== m.total || q.sim !== m.sim)) { q.votes = m.total; q.sim = m.sim || 0; var el = document.getElementById("votes-" + q.id); if (el) el.textContent = votesLabel(q.votes, q.sim); }
           if (openPreview && openPreview.qid === m.q) openPreview.slide.setResults(m);
         } else if (m.t === "live") {
-          state.event.presenting = m.q !== undefined && m.by ? { by: m.by, q: m.q } : null;
+          state.event.presenting = m.active && m.by ? { by: m.by, q: m.q } : null;
           var lv = document.getElementById("liveInfo"); if (lv) lv.innerHTML = liveLabel();
         }
       });
     });
     var openPreview = null;
+    // ogni 30 s ricontrolla se l'evento è ancora in proiezione (il segnale della slide non arriva a questa pagina)
+    clearInterval(window.__presTimer);
+    window.__presTimer = setInterval(function () {
+      if (location.hash.indexOf(id) < 0) { clearInterval(window.__presTimer); return; }
+      T.api("events/" + id).then(function (d) {
+        if (!state.event) return;
+        state.event.presenting = d.event.presenting; state.event.closed = d.event.closed;
+        var lv = document.getElementById("liveInfo"); if (lv) lv.innerHTML = liveLabel();
+      }, function () {});
+    }, 30000);
     function votesLabel(n, sim) { return n + (n === 1 ? " risposta" : " risposte") + (sim ? " (di cui " + sim + " simulate)" : ""); }
     function liveLabel() {
       var p = state.event.presenting;

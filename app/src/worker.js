@@ -8,7 +8,8 @@
 const IDLE_MS = 3 * 60 * 1000;      // nessuna slide in proiezione da 3 minuti: i telefoni mostrano "La presentazione non è in corso"
 const STALE_MS = 8000;              // senza conferme dalla slide per 8 s, la domanda si chiude per il pubblico
 const HIDE_GRACE_MS = 2500;         // attesa prima di chiudere una domanda quando la sua slide si chiude
-const LOCK_MS = 10 * 60 * 1000;     // una presentazione senza segnali da 10 minuti è considerata "sospesa"
+const LOCK_MS = 10 * 60 * 1000;
+const PRESENTING_MS = 30 * 1000;    // "In presentazione" nel pannello solo se l'ultimo segnale della slide è di meno di 30 s fa     // una presentazione senza segnali da 10 minuti è considerata "sospesa"
 const SESSION_MS = 60 * 24 * 3600 * 1000;
 const PBKDF2_ITER = 20000;
 const MAX_OPTIONS = 12;
@@ -141,7 +142,7 @@ export class Hub {
     this.live = new Map();        // eventId -> stato della presentazione
     for (const r of this.all("SELECT * FROM live")) {
       this.live.set(r.event_id, { qid: r.question_id || null, since: r.since, userId: r.user_id, userName: r.user_name,
-        lastBeat: r.last_beat || Date.now(), revealed: !!r.revealed });
+        lastBeat: r.last_beat || 0, revealed: !!r.revealed });   // ora dell'ultimo segnale sconosciuta: non è in presentazione
     }
     for (const L of this.live.values()) L.idle = Date.now() - L.lastBeat > IDLE_MS;
     this.closedCache = new Map(); // eventId -> evento chiuso (true/false)
@@ -194,7 +195,7 @@ export class Hub {
   getEvent(id) { return this.get("SELECT * FROM events WHERE id = ?", id); }
   pubEvent(e) {
     const L = this.live.get(e.id);
-    const presenting = L && Date.now() - L.lastBeat < LOCK_MS ? { by: L.userName, userId: L.userId, q: L.qid } : null;
+    const presenting = L && Date.now() - L.lastBeat < PRESENTING_MS ? { by: L.userName, userId: L.userId, q: L.qid } : null;
     return { id: e.id, code: e.code, name: e.name, template: e.template, created: e.created, updated: e.updated, presenting, closed: !!e.closed };
   }
 
@@ -491,7 +492,8 @@ export class Hub {
   }
   liveMsg(eventId) {
     const L = this.live.get(eventId);
-    return { t: "live", q: L ? L.qid : null, revealed: L ? !!L.revealed : false, by: L ? L.userName : null, userId: L ? L.userId : null };
+    return { t: "live", q: L ? L.qid : null, revealed: L ? !!L.revealed : false, by: L ? L.userName : null, userId: L ? L.userId : null,
+      active: !!L && Date.now() - L.lastBeat < PRESENTING_MS };   // c'è davvero una slide in proiezione adesso
   }
   isClosed(eventId) {
     if (!this.closedCache.has(eventId)) { const e = this.get("SELECT closed FROM events WHERE id = ?", eventId); this.closedCache.set(eventId, !!(e && e.closed)); }
