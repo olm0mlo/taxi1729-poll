@@ -2,6 +2,9 @@
 
 Istruzioni per Claude. Valgono per ogni sessione di lavoro su questo progetto.
 
+**Contesto del progetto** (cosa c'è, decisioni prese, problemi noti, cose da fare): leggi `docs/PASSAGGIO-DI-CONSEGNE.md`
+all'inizio di ogni sessione.
+
 ## Chi sono e come comunicare
 - Ho basi di programmazione, non sono uno sviluppatore. Spiegami le cose in italiano, con parole semplici e senza gergo tecnico;
   se un termine tecnico serve, spiegalo in una frase.
