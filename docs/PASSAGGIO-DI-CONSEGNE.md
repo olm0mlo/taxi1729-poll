@@ -72,9 +72,14 @@ Pannello (admin.html) ─┘                                              SQLite
 
 ### Protocollo in tempo reale (WebSocket `/ws`)
 
-- Presentatore (`role=presenter&event=ID&token=…`): invia `show {q, k, force}` ogni 2 s mentre la slide è in proiezione
-  (`q` = domanda o `null`, `k` = chiave della slide), `hide {q, k}` quando la slide smette di essere attiva,
-  `reveal {q, on}`, `watch {q}` o `watch {qs:[…]}` (riepilogo), `stop`. Riceve `live`, `results`, `locked`, `error`.
+- Presentatore (`role=presenter&event=ID&token=…`): invia `show {q, k, force, fresh}` ogni 2 s mentre la slide è in
+  proiezione (`q` = domanda o `null`, `k` = chiave della slide, `fresh` = primo annuncio dopo che la slide è diventata
+  attiva o dopo una riconnessione), `hide {q, k}` quando la slide smette di essere attiva, `leave` all'uscita dalla
+  proiezione (libera subito il blocco per i colleghi), `reveal {q, on}`, `watch {q}` o `watch {qs:[…]}` (riepilogo),
+  `stop`. Riceve `live`, `results`, `locked`, `error`.
+- Conflitti: se due slide dello stesso presentatore si credono in proiezione (es. slide duplicata), vince l'ultima che ha
+  mandato `fresh`; gli annunci dell'altra con una domanda diversa sono ignorati finché la vincente manda segnali
+  (ogni connessione presentatore ha un `sid`).
 - Pubblico (`role=audience&code=…&voter=…`, voter = id casuale salvato nel browser): riceve `hello`, `state {q, voted,
   idle, closed}`, `voted`, `error`; invia `vote {q, choices}` o `vote {q, value}`.
 - Entrambi: `ping` → `pong` (25 s pubblico, 3 s presentatore; senza risposta in 8/3 s la connessione si riapre).
@@ -148,17 +153,21 @@ viene rispedito al ritorno.
   se servono (Playwright e Chromium sono preinstallati nell'ambiente; npm per wrangler era bloccato).
 - Prima di pubblicare: provare le modifiche e ricontrollare grafici esistenti, riconnessioni e conteggio dei voti.
 
-## 7. Problemi noti (revisione del codice del 23/10, non ancora corretti)
+## 7. Problemi noti (revisione del codice del 23/10)
 
-Consigliati per primi (leggeri, migliorano l'affidabilità in proiezione):
-1. **Errore passeggero di rilevamento slide** (`addin.html`, `evaluate`): se `getSelectedDataAsync` fallisce una volta,
+**Corretti il 26/10** (punti 1, 2, 3 qui sotto): rilevamento slide che non accende più tutte le istanze dopo un errore
+passeggero (si attende fino a 10 s), ricontrollo della slide all'avvio in Modifica (le copie si correggono da sole) più
+risoluzione dei conflitti nel server, `hide` + `leave` all'uscita dalla proiezione. Verificati con un Office.js finto.
+
+Da fare:
+1. ~~ **Errore passeggero di rilevamento slide** (`addin.html`, `evaluate`): se `getSelectedDataAsync` fallisce una volta,
    il ripiego "visibilità" può attivare tutte le istanze caricate → la domanda sui telefoni cambia per un attimo.
-   Correzione: se `S.slideId` è noto e il rilevamento fallisce, mantenere lo stato.
-2. **Slide duplicate**: la copia eredita lo `slideId` dell'originale e si corregge solo con un clic nel riquadro in
+   Correzione: se `S.slideId` è noto e il rilevamento fallisce, mantenere lo stato.~~ (corretto)
+2. ~~**Slide duplicate**: la copia eredita lo `slideId` dell'originale e si corregge solo con un clic nel riquadro in
    modalità Modifica. Ha causato lo sfarfallio del 20/10 (riepilogo duplicato da una slide domanda). Correzione:
    `detectMySlide(true)` sempre all'avvio in modalità Modifica; in più (proposta) il server potrebbe ignorare gli annunci
-   di una slide che non è l'ultima diventata attiva.
-3. **Uscita dalla proiezione senza `hide`** (`onView`: `ensureConn` chiude la connessione prima di `setActive(false)`).
+   di una slide che non è l'ultima diventata attiva.~~ (corretto)
+3. ~~**Uscita dalla proiezione senza `hide`** (`onView`: `ensureConn` chiude la connessione prima di `setActive(false)`).~~ (corretto)
 4. **Barre orizzontali con ≥10 risposte** escono dallo spazio (si sovrappongono a codice e totale).
 5. **Cambio di tipo di una domanda con voti** (scelta multipla ↔ stima) reinterpreta i voti; se era base di segmentazione
    i risultati dell'altra domanda vanno in errore 500. Proposta: impedire il cambio di tipo se ci sono voti.
@@ -173,7 +182,7 @@ di `worker.js`).
 
 ## 8. Da fare / idee
 
-- Correggere i punti 1–5 della sezione 7 (in attesa del via dell'utente).
+- Correggere i punti 4–5 della sezione 7 e il problema delle anteprime (in attesa del via dell'utente).
 - Dominio dedicato **poll.taxi1729.it** (indirizzo più corto sul QR e sulla slide di benvenuto).
 - Domanda di tipo **Rating** (scala con istogramma e media; commenti solo nei risultati).
 - Accesso con **account Microsoft**.

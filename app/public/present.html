@@ -55,13 +55,14 @@
     document.getElementById("ctrl").classList.remove("hidden");
     conn = T.live({ role: "presenter", event: ev.id, token: T.token() }, onMsg, function (ok) {
       document.getElementById("netDot").classList.toggle("on", ok);
-      if (ok) announce();
+      if (ok) announce(true);
     }, { pingMs: 3000, pongMs: 3000 });
     go(0);
   }, function (e) { overlay("<h3>Impossibile aprire l'evento</h3><p>" + esc(e.message) + '</p><p><a href="/admin">Vai al pannello</a></p>'); });
 
   function current() { return idx === 0 ? null : questions[idx - 1]; }
-  function announce() { if (conn) conn.send({ t: "show", q: current() ? current().id : null, force: force }); }
+  // fresh = primo annuncio dopo un cambio di slide o una riconnessione (prevale su altre slide che si credono in proiezione)
+  function announce(fresh) { if (conn) conn.send({ t: "show", q: current() ? current().id : null, force: force, fresh: !!fresh }); }
   function go(i) {
     var total = questions.length + 1;
     idx = Math.max(0, Math.min(total - 1, i));
@@ -80,8 +81,8 @@
     }
     document.getElementById("reveal").classList.toggle("hidden", !(q && q.data.reveal === "click"));
     updateRevealBtn();
-    announce();
-    clearInterval(beat); beat = setInterval(announce, 2000);
+    announce(true);
+    clearInterval(beat); beat = setInterval(function () { announce(false); }, 2000);
   }
   function updateRevealBtn() {
     var q = current(), on = q && live.q === q.id && live.revealed;
@@ -145,7 +146,7 @@
   });
   var idleT; function wake() { var c = document.getElementById("ctrl"); c.classList.remove("idle"); clearTimeout(idleT); idleT = setTimeout(function () { c.classList.add("idle"); }, 2500); }
   document.addEventListener("mousemove", wake); wake();
-  window.addEventListener("pagehide", function () { if (conn && current()) conn.send({ t: "hide", q: current().id }); });
+  window.addEventListener("pagehide", function () { if (conn && current()) conn.send({ t: "hide", q: current().id }); if (conn) conn.send({ t: "leave" }); });
 })();
 </script>
 </body>

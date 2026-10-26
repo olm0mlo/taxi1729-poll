@@ -124,10 +124,14 @@
   }
   function sameSlide(cur) { return !!(cur && cur.id && S.slideId && baseId(cur.id) === baseId(S.slideId)); }
 
-  function detectMySlide(force) {
+  function detectMySlide(force, retries) {
     if (S.slideId && !force) return;
     readCurrentSlide(function (cur) {
-      if (!cur.id) { log("impossibile rilevare la slide: " + cur.method); return; }
+      if (!cur.id) {
+        log("impossibile rilevare la slide: " + cur.method + (retries ? " (riprovo)" : ""));
+        if (retries) setTimeout(function () { detectMySlide(force, retries - 1); }, 700);
+        return;
+      }
       if (baseId(cur.id) === baseId(S.slideId)) { if (cur.index !== S.slideIndex) { S.slideIndex = cur.index; saveSettings(); } return; }
       if (S.slideId) {
         log("riquadro associato alla slide " + S.slideId + ", ora sulla slide " + cur.id + ": probabilmente è una copia");
@@ -138,7 +142,7 @@
     });
   }
 
-  var lastKey = "";
+  var lastKey = "", detectFails = 0;
   function tick() {
     if (!officeReady) { evaluate(); return; }
     readCurrentSlide(function (cur) {
@@ -154,7 +158,13 @@
     else if (S.kind === "question" && !S.questionId) { on = false; why = "nessuna domanda scelta"; }
     else if (S.kind === "summary" && sumIds().length < 2) { on = false; why = "domande del riepilogo non scelte"; }
     else if (curSlide && curSlide.id && S.slideId) { on = sameSlide(curSlide); why = on ? "slide corrente = questa slide" : "slide corrente diversa"; }
+    else if (S.slideId && curSlide && !curSlide.id) {
+      // la rilevazione della slide è fallita per un attimo: si resta come si era, invece di accendere tutte le slide
+      if (++detectFails <= 20) return;
+      on = false; why = "slide non rilevabile da 10 secondi";
+    }
     else { on = document.visibilityState === "visible"; why = "fallback visibilità"; }
+    if (curSlide && curSlide.id) detectFails = 0;
     setActive(on, why);
   }
   function setActive(on, why) {
@@ -164,15 +174,20 @@
     clearInterval(beatTimer);
     if (!on && view === "read") slide.arm();   // la prossima volta il grafico ripartirà da vuoto
     if (on) {
-      announce(); beatTimer = setInterval(announce, HEARTBEAT_MS); slide.playIntro();
+      needFresh = true; announce(); beatTimer = setInterval(announce, HEARTBEAT_MS); slide.playIntro();
       if (S.kind === "summary" && conn) conn.send({ t: "watch", qs: sumIds() });   // risultati aggiornati al momento in cui compare
     }
     else if (conn && S.kind === "question" && S.questionId) conn.send({ t: "hide", q: S.questionId, k: slideKey() });
     drawSlideCtl();
   }
+  // "fresh" = primo annuncio dopo che la slide è diventata attiva (o dopo una riconnessione): il server lo fa prevalere
+  // su un'altra slide che si crede ancora in proiezione.
+  var needFresh = false;
   function announce() {
     if (!conn || !active) return;
-    conn.send({ t: "show", q: S.kind === "question" ? S.questionId : null, k: slideKey(), force: force });
+    if (conn.isOpen && !conn.isOpen()) { needFresh = true; return; }
+    conn.send({ t: "show", q: S.kind === "question" ? S.questionId : null, k: slideKey(), force: force, fresh: needFresh });
+    needFresh = false;
   }
 
   // ------------------------------------------------------------------ collegamento in tempo reale (in proiezione)
@@ -187,7 +202,7 @@
     conn = T.live({ role: "presenter", event: S.eventId, token: T.token() }, onLive, function (ok) {
       log("rete: " + (ok ? "collegato" : "scollegato, riprovo…"));
       if (ok) {
-        announce();
+        needFresh = true; announce();
         if (S.kind === "summary") { if (sumIds().length) conn.send({ t: "watch", qs: sumIds() }); }
         else if (S.questionId) conn.send({ t: "watch", q: S.questionId });
       }
@@ -600,6 +615,11 @@
     });
   }
   function onView(v, initial) {
+    if (v !== "read" && view === "read" && conn) {
+      // uscita dalla proiezione: si chiude subito la domanda e si libera l'evento, prima di chiudere il collegamento
+      if (active) { view = v; setActive(false, "uscita dalla proiezione"); }
+      conn.send({ t: "leave" });
+    }
     view = v; log((initial ? "vista iniziale: " : "cambio vista: ") + v + (initial ? " (dopo " + (Date.now() - T0) + " ms)" : ""));
     renderMode(); ensureConn(); tick();
     if (v === "read") {
@@ -620,7 +640,9 @@
     log("avvio in " + Office.context.diagnostics.platform + " " + Office.context.diagnostics.version);
     Office.context.document.getActiveViewAsync(function (r) {
       onView(r.value, true);
-      if (r.value === "edit") { detectMySlide(false); if (!S.fitted) setTimeout(function () { fitToSlide(false); }, 900); }
+      // in Modifica il riquadro si carica quando la sua slide è quella selezionata: si ricontrolla sempre su quale slide è
+      // (una slide duplicata eredita l'identificativo dell'originale e va corretta subito)
+      if (r.value === "edit") { if (document.visibilityState === "visible") detectMySlide(true, 4); else detectMySlide(false); if (!S.fitted) setTimeout(function () { fitToSlide(false); }, 900); }
       if (r.value === "edit") bootData(); else T.api("me").then(function (d) { me = d.user; }, function () {});
     });
     Office.context.document.addHandlerAsync(Office.EventType.ActiveViewChanged, function (e) { onView(e.activeView, false); });

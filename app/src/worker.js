@@ -8,8 +8,8 @@
 const IDLE_MS = 3 * 60 * 1000;      // nessuna slide in proiezione da 3 minuti: i telefoni mostrano "La presentazione non è in corso"
 const STALE_MS = 8000;              // senza conferme dalla slide per 8 s, la domanda si chiude per il pubblico
 const HIDE_GRACE_MS = 2500;         // attesa prima di chiudere una domanda quando la sua slide si chiude
-const LOCK_MS = 10 * 60 * 1000;
-const PRESENTING_MS = 30 * 1000;    // "In presentazione" nel pannello solo se l'ultimo segnale della slide è di meno di 30 s fa     // una presentazione senza segnali da 10 minuti è considerata "sospesa"
+const LOCK_MS = 10 * 60 * 1000;     // una presentazione senza segnali da 10 minuti è considerata "sospesa" (altri utenti possono presentare)
+const PRESENTING_MS = 30 * 1000;    // "In presentazione" nel pannello solo se l'ultimo segnale della slide è di meno di 30 s fa
 const SESSION_MS = 60 * 24 * 3600 * 1000;
 const PBKDF2_ITER = 20000;
 const MAX_OPTIONS = 12;
@@ -847,7 +847,7 @@ export class Hub {
       if (!user) return json({ error: "Accesso richiesto" }, 401);
       const e = this.getEvent(url.searchParams.get("event"));
       if (!e) return json({ error: "Evento non trovato" }, 404);
-      att = { role, eventId: e.id, userId: user.id, userName: user.name }; tag = "p:" + e.id;
+      att = { role, eventId: e.id, userId: user.id, userName: user.name, sid: rid(8) }; tag = "p:" + e.id;   // sid: identifica questa connessione
     } else return json({ error: "Ruolo non valido" }, 400);
 
     const pair = new WebSocketPair();
@@ -915,17 +915,25 @@ export class Hub {
       if (msg.t === "show") {
         const qid = msg.q || null;
         if (qid) { const q = this.getQ(qid); if (!q || q.eventId !== ev) return reply({ t: "error", msg: "Domanda non trovata in questo evento" }); }
-        if (L && L.userId !== att.userId && now - L.lastBeat < LOCK_MS && !msg.force) {
+        if (L && L.userId !== att.userId && now - L.lastBeat < LOCK_MS && !L.released && !msg.force) {
           return reply({ t: "locked", by: L.userName, since: L.since });
         }
+        // Due slide dello stesso presentatore che si credono entrambe in proiezione (es. una slide duplicata):
+        // vince quella diventata attiva per ultima ("fresh"), le ripetizioni dell'altra vengono ignorate finché
+        // la vincente continua a mandare il suo segnale. Così i telefoni non saltano da una domanda all'altra.
+        const sid = att.sid || null;
+        if (L && L.userId === att.userId && !msg.fresh && L.src && sid && L.src !== sid &&
+            now - (L.srcBeat || 0) < STALE_MS && L.qid !== qid) return;
         const changed = !L || L.qid !== qid || L.userId !== att.userId || L.idle;
         if (!L || L.userId !== att.userId || L.qid !== qid) {
           L = { qid, since: now, userId: att.userId, userName: att.userName, lastBeat: now, revealed: false };
           this.live.set(ev, L);
         }
-        L.lastBeat = now; L.hideToken = null; L.idle = false;
+        L.lastBeat = now; L.hideToken = null; L.idle = false; L.released = false;
+        const isSrc = msg.fresh || !L.src || !sid || L.src === sid || now - (L.srcBeat || 0) >= STALE_MS;
+        if (isSrc) { L.src = sid; L.srcBeat = now; }
         if (!changed && now - (L.savedBeat || 0) > 30000) this.saveLive(ev);   // ultimo segnale salvato ogni 30 s (serve dopo un riavvio)
-        L.k = typeof msg.k === "string" ? msg.k.slice(0, 60) : null;   // quale slide sta mostrando la domanda
+        if (isSrc) L.k = typeof msg.k === "string" ? msg.k.slice(0, 60) : null;   // quale slide sta mostrando la domanda
         if (changed) { this.saveLive(ev); this.pushLive(ev); if (qid) reply(this.results(qid)); }
         await this.ensureAlarm();
         return;
@@ -944,6 +952,11 @@ export class Hub {
             this.saveLive(ev); this.pushLive(ev);
           }, HIDE_GRACE_MS);
         }
+        return;
+      }
+      if (msg.t === "leave") {
+        // il presentatore è uscito dalla proiezione: un collega può presentare subito, senza aspettare 10 minuti
+        if (L && L.userId === att.userId) L.released = true;
         return;
       }
       if (msg.t === "reveal") {
