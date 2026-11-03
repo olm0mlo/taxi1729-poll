@@ -87,7 +87,7 @@
       canvas.style.top = ((hgt - 1080 * k) / 2) + "px";
     }
     window.addEventListener("resize", fit);
-    setInterval(fit, 1000);
+    var fitTimer = setInterval(fit, 1000);
 
     function drawQr() {
       qr.innerHTML = "";
@@ -864,6 +864,12 @@
       setNotice: function (text) {
         notice.innerHTML = ""; notice.classList.toggle("hidden", !text);
         if (text) notice.appendChild(h("span", null, text));
+      },
+      // Spegne la slide (anteprime che si chiudono): niente più controlli in sottofondo, memoria liberata.
+      destroy: function () {
+        clearInterval(fitTimer); window.removeEventListener("resize", fit);
+        if (view && view.destroy) view.destroy();
+        view = null; root.innerHTML = "";
       },
       redrawQr: drawQr, fit: fit, render: render
     };

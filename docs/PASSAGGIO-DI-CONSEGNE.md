@@ -173,8 +173,7 @@ Da fare:
    i risultati dell'altra domanda vanno in errore 500. Proposta: impedire il cambio di tipo se ci sono voti.
 
 Altri: `T.parseNum("0.125")` = 125; tastiera iPhone senza segno meno; voti illimitati con id inventati (abuso del
-limite scritture: limitare per IP con `CF-Connecting-IP`); etichette lunghe nella ciambella non accorciate; anteprime
-`T.Slide` mai liberate (timer e listener); ping dei telefoni = voce di consumo principale (`ctx.setWebSocketAutoResponse`);
+limite scritture: limitare per IP con `CF-Connecting-IP`); etichette lunghe nella ciambella non accorciate; ~~anteprime `T.Slide` mai liberate~~ (corretto il 3/11: una sola anteprima riusata nell'add-in, `destroy()` alla chiusura nel pannello); ping dei telefoni = voce di consumo principale (`ctx.setWebSocketAutoResponse`);
 token nell'URL dell'export CSV; blocco login per email sfruttabile; dopo "Svuota" i telefoni non possono rivotare senza
 ricaricare; domanda cancellata in proiezione → voti in errore; codice evento vuoto → nuovo codice casuale; duplicazioni
 (messaggio "Inserisci un numero…" in 3 file); residui (`S.welcomeTitle`, `.t-wcode`, `t-join`, commento doppio riga 12
@@ -182,7 +181,7 @@ di `worker.js`).
 
 ## 8. Da fare / idee
 
-- Correggere i punti 4–5 della sezione 7 e il problema delle anteprime (in attesa del via dell'utente).
+- Correggere i punti 4–5 della sezione 7 (in attesa del via dell'utente).
 - Dominio dedicato **poll.taxi1729.it** (indirizzo più corto sul QR e sulla slide di benvenuto).
 - Domanda di tipo **Rating** (scala con istogramma e media; commenti solo nei risultati).
 - Accesso con **account Microsoft**.

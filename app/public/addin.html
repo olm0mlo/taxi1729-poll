@@ -501,10 +501,14 @@
     bindDiag();
     drawMini();
   }
-  var mini = null;
+  // Anteprima nel pannello: una sola, creata una volta e riusata (spostata nel riquadro a ogni ridisegno del pannello),
+  // così non si accumulano anteprime vecchie in memoria.
+  var mini = null, miniHost = null;
   function drawMini() {
     var box = $("mini"); if (!box) return;
-    mini = T.Slide(box);
+    if (!miniHost) { miniHost = document.createElement("div"); miniHost.style.cssText = "position:absolute;inset:0"; }
+    box.appendChild(miniHost);
+    if (!mini) mini = T.Slide(miniHost);
     mini.setEvent(S.eventCode ? { code: S.eventCode, name: S.eventName } : null);
     mini.setChartOverride(S.chart || null);
     mini.setAnswerVisible(S.answer === "shown");

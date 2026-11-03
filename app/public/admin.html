@@ -346,7 +346,7 @@
       openPreview = { qid: q.id, slide: slide };
       if (!window.QRCode) T.loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js", function () { slide.redrawQr(); });
       T.api("questions/" + q.id + "/results").then(function (r) { slide.setResults(r); });
-      function close() { modal.innerHTML = ""; openPreview = null; }
+      function close() { slide.destroy(); modal.innerHTML = ""; openPreview = null; }
       document.getElementById("mClose").onclick = close;
       modal.firstChild.onclick = function (e) { if (e.target === modal.firstChild) close(); };
     }
