@@ -147,11 +147,12 @@ viene rispedito al ritorno.
 - **Test di carico sul server vero:** GitHub → Actions → "Test di carico" → Run workflow (indirizzo del sito, 1000, 20).
   Crea un evento temporaneo, simula voti/cadute/riavvii, controlla i conteggi, cancella tutto. Risultato nella pagina
   Summary. Non lanciarlo subito dopo una pubblicazione (il server si riavvia) né il giorno di un evento grande.
-- **Prove in locale:** cartella `tests/` (istruzioni in `tests/README.md`): server di prova con il codice vero
-  (`harness.mjs`, `devserver.mjs`), Office.js finto (`officestub.js`) e due prove pronte (`proiezione.mjs`,
-  `anteprime.mjs`). Per nuove modifiche grafiche conviene aggiungere prove che fotografano slide/telefoni con Playwright.
-  Le prove dei grafici, delle riconnessioni e delle schermate di fine evento usate nelle sessioni passate non sono state
-  conservate: vanno riscritte sullo stesso modello se servono.
+- **Prove in locale:** cartella `tests/` (istruzioni in `tests/README.md`). Comando unico: `node tests/tutte.mjs`
+  (circa 2 minuti). Cinque prove: `voti.mjs` (conteggio voti sul server, riavvii, export), `telefoni.mjs` (pagina del
+  pubblico, cadute di rete, voto perso e rispedito), `grafici.mjs` (ogni grafico: numeri giusti, niente fuori posto,
+  foto in `tests/.tmp/`), `proiezione.mjs`, `anteprime.mjs`. I problemi noti compaiono come `NOTO` e non bloccano.
+  Verificato il 6/11 che le prove scoprono davvero un guasto (voto doppio, voto perso non rispedito, percentuali sbagliate).
+  Per nuove funzioni aggiungere le verifiche alla prova dell'argomento.
 - Prima di pubblicare: provare le modifiche e ricontrollare grafici esistenti, riconnessioni e conteggio dei voti.
 
 ## 7. Problemi noti (revisione del codice del 23/10)
@@ -174,7 +175,7 @@ Da fare:
    i risultati dell'altra domanda vanno in errore 500. Proposta: impedire il cambio di tipo se ci sono voti.
 
 Altri: `T.parseNum("0.125")` = 125; tastiera iPhone senza segno meno; voti illimitati con id inventati (abuso del
-limite scritture: limitare per IP con `CF-Connecting-IP`); etichette lunghe nella ciambella non accorciate; ~~anteprime `T.Slide` mai liberate~~ (corretto il 3/11: una sola anteprima riusata nell'add-in, `destroy()` alla chiusura nel pannello); ping dei telefoni = voce di consumo principale (`ctx.setWebSocketAutoResponse`);
+limite scritture: limitare per IP con `CF-Connecting-IP`); etichette lunghe nella ciambella non accorciate; nella vista con due istogrammi per gruppo la linea della mediana del gruppo A attraversa la scritta "Gruppo A · N risposte" (visto il 6/11); ~~anteprime `T.Slide` mai liberate~~ (corretto il 3/11: una sola anteprima riusata nell'add-in, `destroy()` alla chiusura nel pannello); ping dei telefoni = voce di consumo principale (`ctx.setWebSocketAutoResponse`);
 token nell'URL dell'export CSV; blocco login per email sfruttabile; dopo "Svuota" i telefoni non possono rivotare senza
 ricaricare; domanda cancellata in proiezione → voti in errore; codice evento vuoto → nuovo codice casuale; duplicazioni
 (messaggio "Inserisci un numero…" in 3 file); residui (`S.welcomeTitle`, `.t-wcode`, `t-join`, commento doppio riga 12

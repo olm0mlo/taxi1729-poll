@@ -24,7 +24,15 @@ export async function startServer(port) {
     if (c.status) { ws.close({ code: 1008, reason: 'no' }); return; }
     c.msgs.forEach(m => ws.send(JSON.stringify(m)));
     c.client.listeners.push(d => { try { ws.send(d); } catch (e) {} });
-    ws.onMessage(m => c.send(JSON.parse(m)));
+    c.client.onClose.push(() => { try { ws.close({ code: 1012, reason: 'riavvio' }); } catch (e) {} });   // il server ha chiuso (riavvio)
+    // H.perdi(msg) → true: il messaggio della pagina "si perde per strada" (per simulare una rete che cade durante l'invio)
+    ws.onMessage(m => { const o = JSON.parse(m); if (H.perdi && H.perdi(o, c)) return; if (!c.client.closed) c.send(o); });
+    ws.onClose(() => { links.delete(c); c.close(); });                                                    // la pagina ha chiuso
+    links.add(c); c.client.onClose.push(() => links.delete(c));
   };
+  // Collegamenti aperti dalle pagine. H.dropLinks(filtro) simula una caduta di rete: chiude i collegamenti scelti
+  // (per esempio solo quelli dei telefoni) da entrambe le parti.
+  const links = H.links = new Set();
+  H.dropLinks = (keep = () => true) => { let n = 0; for (const c of [...links]) if (keep(c)) { c.server.close(); n++; } return n; };
   return { srv, H, bridge };
 }
