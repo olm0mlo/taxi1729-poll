@@ -147,10 +147,11 @@ viene rispedito al ritorno.
 - **Test di carico sul server vero:** GitHub → Actions → "Test di carico" → Run workflow (indirizzo del sito, 1000, 20).
   Crea un evento temporaneo, simula voti/cadute/riavvii, controlla i conteggi, cancella tutto. Risultato nella pagina
   Summary. Non lanciarlo subito dopo una pubblicazione (il server si riavvia) né il giorno di un evento grande.
-- **Prove in locale (da ricreare):** nelle sessioni precedenti si usava uno script Node che carica `worker.js` con un
-  finto Durable Object (SQLite di Node `node:sqlite`, WebSocket reali), Playwright per fotografare slide/telefoni/pannello
-  e uno "stub" di Office.js per provare l'add-in nel browser. Questi script **non sono nel repository**: vanno ricreati
-  se servono (Playwright e Chromium sono preinstallati nell'ambiente; npm per wrangler era bloccato).
+- **Prove in locale:** cartella `tests/` (istruzioni in `tests/README.md`): server di prova con il codice vero
+  (`harness.mjs`, `devserver.mjs`), Office.js finto (`officestub.js`) e due prove pronte (`proiezione.mjs`,
+  `anteprime.mjs`). Per nuove modifiche grafiche conviene aggiungere prove che fotografano slide/telefoni con Playwright.
+  Le prove dei grafici, delle riconnessioni e delle schermate di fine evento usate nelle sessioni passate non sono state
+  conservate: vanno riscritte sullo stesso modello se servono.
 - Prima di pubblicare: provare le modifiche e ricontrollare grafici esistenti, riconnessioni e conteggio dei voti.
 
 ## 7. Problemi noti (revisione del codice del 23/10)

@@ -38,7 +38,9 @@ In questi casi **non iniziare subito**. Prima dimmi, in poche righe:
 2. che cosa cambierebbe nel concreto (per me, per il pubblico, per i costi);
 3. se esiste un'alternativa più leggera che ottiene quasi lo stesso risultato;
 
-poi aspetta la mia conferma. Le richieste leggere puoi farle direttamente.
+poi aspetta la mia conferma. **Non iniziare mai a programmare (anche per richieste leggere) finché non ti do un via libera
+esplicito** ("procedi", "vai", "fallo"): una domanda come "si può fare?" o "come faresti?" non è un via libera.
+Il via libera vale solo per ciò che abbiamo concordato; se durante il lavoro serve altro, fermati e chiedimelo.
 
 ## Proposte prima del codice
 - Se scrivo "fammi proposte", "non programmare" o simili: niente codice. Mostrami 2–3 alternative
@@ -54,8 +56,9 @@ poi aspetta la mia conferma. Le richieste leggere puoi farle direttamente.
 ## Come verificare il lavoro
 - Prima di pubblicare, prova le modifiche (pagine nel browser, grafici, telefoni) e controlla di non aver rotto
   quello che già funzionava: grafici esistenti, riconnessioni, conteggio dei voti.
-- Per modifiche che toccano server, voti o collegamenti, esegui il test di carico in locale (`loadtest/carico.mjs`)
-  e, se serve, chiedimi di lanciarlo sul server vero da GitHub → Actions → "Test di carico".
+- Usa le prove automatiche in `tests/` (vedi `tests/README.md`): server di prova, PowerPoint simulato, telefoni.
+- Per modifiche che toccano server, voti o collegamenti, esegui anche il test di carico in locale (`loadtest/carico.mjs`
+  contro il server di prova) e, se serve, chiedimi di lanciarlo sul server vero da GitHub → Actions → "Test di carico".
 - Alla fine dimmi in breve cosa è cambiato, cosa hai verificato e cosa resta da provare in PowerPoint.
 
 ## Scelte tecniche da mantenere (salvo mio diverso accordo)
